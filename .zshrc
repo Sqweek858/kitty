@@ -577,6 +577,7 @@ typeset -gi CYBER_STDERR_FD=-1
 typeset -gi CYBER_TOPBAR_ENABLED=${CYBER_TOPBAR_ENABLED:-1}
 typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-1}
 typeset -gi CYBER_MOUSE_UI=${CYBER_MOUSE_UI:-0}   # 0 = mouse normal (select/copy), 1 = mouse tracking for UI
+typeset -gi CYBER_MOUSE_ENABLED=${CYBER_MOUSE_ENABLED:-0}  # OFF implicit (mouse reporting poate strica input-ul în tmux/kitty)
 
 cyber_topbar_apply_scroll_region() {
   [[ -t 1 ]] || return
@@ -812,6 +813,12 @@ zle -N cyber_macros_widget
 bindkey '^[m' cyber_macros_widget
 
 TRAPWINCH() {
+  # Resize handler: redraw UI ONLY when idle.
+  # Dacă redesenăm în timpul execuției unei comenzi, putem corupe output-ul.
+  [[ -t 1 ]] || return 0
+  (( ${CYBER_TERMINAL_BUSY:-0} == 0 )) || return 0
+  [[ -n "${ZLE:-}" ]] || return 0
+
   cyber_topbar_apply_scroll_region
   typeset -f cyber_draw_utility_bar >/dev/null 2>&1 && cyber_draw_utility_bar
   parallax_redraw_now
@@ -3733,6 +3740,13 @@ zle -N cyber_accept_line
 # bindkey '^J' cyber_accept_line   # DEZACTIVAT
 
 # FEATURE 22: AMBIENT MODE
+# IMPORTANT:
+# Un watchdog care scrie asincron în terminal (via TRAPUSR1) poate corupe output-ul
+# comenzii și poate „intra peste” input (exact simptomele descrise: output dispare,
+# cursorul nu se mai mișcă, parallax în litere).
+# Îl lăsăm disponibil, dar OFF implicit. Îl poți activa cu:
+#   export CYBER_AMBIENT_ENABLED=1
+typeset -gi CYBER_AMBIENT_ENABLED=${CYBER_AMBIENT_ENABLED:-0}
 typeset -g AMBIENT_TIMEOUT=300
 typeset -g AMBIENT_ACTIVE=0
 typeset -g CYBER_LAST_ACTIVITY=$(date +%s)
@@ -3749,6 +3763,11 @@ exit_ambient_mode() {
 update_activity() { CYBER_LAST_ACTIVITY=$(date +%s); [[ $AMBIENT_ACTIVE -eq 1 ]] && exit_ambient_mode; }
 cyber_ambient_tick() {
     [[ -t 1 ]] || return
+    # Nu redesenăm niciodată în timp ce rulează o comandă.
+    # Redesenarea asincronă este cea care „taie” output-ul.
+    (( ${CYBER_TERMINAL_BUSY:-0} == 0 )) || return
+    # Și doar când suntem în ZLE (adică userul e la prompt, nu în exec).
+    [[ -n "${ZLE:-}" ]] || return
     local now=$(date +%s)
     if (( AMBIENT_ACTIVE == 0 )) && (( now - CYBER_LAST_ACTIVITY > AMBIENT_TIMEOUT )); then
         enter_ambient_mode
@@ -3760,6 +3779,7 @@ TRAPUSR1() { cyber_ambient_tick; return 0; }
 
 cyber_start_ambient_watchdog() {
     [[ -o interactive ]] || return
+    (( ${CYBER_AMBIENT_ENABLED:-0} )) || return
     typeset -g CYBER_AMBIENT_WATCHDOG_PID=${CYBER_AMBIENT_WATCHDOG_PID:-0}
     if (( CYBER_AMBIENT_WATCHDOG_PID > 0 )) && kill -0 $CYBER_AMBIENT_WATCHDOG_PID 2>/dev/null; then
         return
@@ -3885,7 +3905,6 @@ command_not_found_handler() {
 # HOOKS - PREEXEC & PRECMD
 # ═══════════════════════════════════════════════════════════════════════════════
 preexec() {
-preexec() {
     # Set terminal busy state
     CYBER_TERMINAL_BUSY=1
     CYBER_LAST_COMMAND="$1"
@@ -3904,7 +3923,6 @@ preexec() {
     
     # Macro recording
     [[ $CYBER_RECORDING_MACRO -eq 1 ]] && macro_add_command "$1"
-}
 }
 # ═══════════════════════════════════════════════════════════════════════════════
 # HOOKS - PRECMD (called before displaying prompt, after command completes)
