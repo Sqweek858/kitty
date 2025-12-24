@@ -269,6 +269,14 @@ FAST_HIGHLIGHT_STYLES[incorrect-subtle]='fg=196'
 FAST_HIGHLIGHT_STYLES[subtle-separator]='fg=248'
 FAST_HIGHLIGHT_STYLES[subtle-bg]='bg=234'
 
+# Autosuggestions configuration - mai puțin agresiv
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)
+ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20
+ZSH_AUTOSUGGEST_USE_ASYNC=1
+ZSH_AUTOSUGGEST_MANUAL_REBIND=1
+ZSH_AUTOSUGGEST_HISTORY_IGNORE="?(#c50,)"
+ZSH_AUTOSUGGEST_COMPLETION_IGNORE="[[:space:]]*"
+
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 # SECTION 8: COMPLETION SYSTEM CONFIGURATION
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -570,6 +578,7 @@ typeset -g CYBER_STDERR_LOG="${XDG_CACHE_HOME:-$HOME/.cache}/cyberpunk_stderr.lo
 typeset -gi CYBER_STDERR_FD=-1
 
 typeset -gi CYBER_TOPBAR_ENABLED=${CYBER_TOPBAR_ENABLED:-1}
+typeset -gi CYBER_TOPBAR_VISIBLE=${CYBER_TOPBAR_VISIBLE:-1}
 typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-1}
 
 cyber_topbar_apply_scroll_region() {
@@ -2187,9 +2196,7 @@ cinematic_intro() {
 
     # Show cursor
     printf '\033[?25h'
-# Clear pentru parallax
-    clear
-
+# Nu facem clear - lăsăm output-ul să rămână
     # Mark as shown
     WELCOME_SHOWN=1
 }
@@ -2251,11 +2258,16 @@ _draw_static_stars() {
 
   printf '\e[s'
 
+  # Rezervăm mai mult spațiu pentru text: primele 8 rânduri și ultimele 3
+  local y_min=9
+  local y_max=$((lines - 4))
+  (( y_max < y_min + 5 )) && return  # terminal prea mic
+  
   for ((i=0; i<num_stars; i++)); do
     h=$(( (1103515245 * (i * 7919 + 104729) + 12345) & 0x7FFFFFFF ))
     x=$(( (h % (cols - 4)) + 3 ))
     h=$(( (h * 16807 + 1) & 0x7FFFFFFF ))
-    y=$(( (h % (lines - 6)) + 4 ))
+    y=$(( (h % (y_max - y_min)) + y_min ))
 
     # Salvează și tipul de culoare
     color_type=$(( h % 8 ))
@@ -2396,18 +2408,9 @@ generate_parallax_bg() { _draw_static_stars; }
 parallax_draw_fullscreen_skip() { :; }
 cyber_draw_parallax_header() { :; }
 
-cyber_toggle_parallax_widget() {
-  (( PARALLAX_ENABLED = !PARALLAX_ENABLED ))
-  if (( PARALLAX_ENABLED )); then
-    parallax_start
-    zle -M "✦ Stars: ON"
-  else
-    parallax_stop
-    zle -M "✦ Stars: OFF"
-  fi
-}
-zle -N cyber_toggle_parallax_widget
-bindkey '^[p' cyber_toggle_parallax_widget
+# cyber_toggle_parallax_widget este definit mai sus (linia ~722)
+# Nu redefinim pentru a evita conflicte
+
 #\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 # SECTION 17: FEATURE 6 - NLP FOR COMMAND CORRECTIONS
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -3766,6 +3769,53 @@ show_success() { cyber_notify_once "ok:$1" cyber_notify_box green "✓" "${1:-Do
 show_warning() { cyber_notify_once "warn:$1" cyber_notify_box yellow "⚠" "${1:-Warning}"; }
 show_error()   { cyber_notify_once "err:$1" cyber_notify_box red "✖" "${1:-Error}"; }
 
+# FEATURE 20b: OUTPUT BOX - Chenar colorat pentru output
+# Folosire: comanda | boxed  sau: boxed "text"
+boxed() {
+    local cols=${COLUMNS:-80}
+    local inner=$(( cols - 6 ))
+    (( inner < 20 )) && inner=20
+    
+    # Gradient colors
+    local c1="${CYBER_COLORS[cyan]}"
+    local c2="${CYBER_COLORS[magenta]}"
+    local rst="${CYBER_STYLE[reset]}"
+    
+    # Top border
+    printf "\n%b╭" "$c1"
+    for ((i=0; i<inner+2; i++)); do printf "─"; done
+    printf "╮%b\n" "$rst"
+    
+    # Content
+    if [[ $# -gt 0 ]]; then
+        # Text direct
+        printf "%b│%b %s" "$c1" "$rst" "$*"
+        local len=${#*}
+        local pad=$((inner - len))
+        (( pad > 0 )) && printf "%*s" "$pad" ""
+        printf " %b│%b\n" "$c2" "$rst"
+    else
+        # Pipe input
+        while IFS= read -r line; do
+            local display="${line:0:$inner}"
+            printf "%b│%b %s" "$c1" "$rst" "$display"
+            local len=${#display}
+            local pad=$((inner - len))
+            (( pad > 0 )) && printf "%*s" "$pad" ""
+            printf " %b│%b\n" "$c2" "$rst"
+        done
+    fi
+    
+    # Bottom border  
+    printf "%b╰" "$c2"
+    for ((i=0; i<inner+2; i++)); do printf "─"; done
+    printf "╯%b\n" "$rst"
+}
+
+# Alias pentru comenzi comune cu chenar
+alias lsb='ls -la | boxed'
+alias catb='bat --style=plain | boxed'
+
 # FEATURE 21: SMART SUDO
 typeset -ga SUDO_REQUIRED=("pacman -S" "pacman -R" "pacman -U" "systemctl start" "systemctl stop" "systemctl restart" "systemctl enable" "systemctl disable" "mount" "umount" "fdisk" "mkfs" "chown" "chmod 000" "useradd" "userdel")
 needs_sudo() { local cmd="$1"; for p in "${SUDO_REQUIRED[@]}"; do [[ "$cmd" == "$p"* ]] && return 0; done; return 1; }
@@ -3973,29 +4023,77 @@ precmd() {
 }
 # Forțează redesenarea barei după fiecare comandă
 _cyber_redraw_bar_precmd() {
-    (( CYBER_TOPBAR_ENABLED )) && cyber_draw_utility_bar 2>/dev/null
+    # Bara de utilități - persistentă pe ultimul rând
+    if (( CYBER_TOPBAR_ENABLED && CYBER_TOPBAR_VISIBLE )); then
+        cyber_draw_utility_bar 2>/dev/null
+    fi
 }
 add-zsh-hook precmd _cyber_redraw_bar_precmd
 
-# KEY BINDINGS
+# Și după fiecare caracter tastat (pentru a fi mai persistentă)
+_cyber_redraw_bar_zle() {
+    if (( CYBER_TOPBAR_ENABLED && CYBER_TOPBAR_VISIBLE && ! CYBER_TERMINAL_BUSY )); then
+        cyber_draw_utility_bar 2>/dev/null
+    fi
+}
+# Apelăm la line-init pentru a redesena bara când prompt-ul apare
+add-zsh-hook precmd _cyber_redraw_bar_precmd
+
+# KEY BINDINGS - COMPLETE
 bindkey -e
-bindkey '^[[C' forward-char        # Săgeată dreapta
-bindkey '^[[D' backward-char       # Săgeată stânga
+
+# Mod Emacs de bază
 bindkey '^A' beginning-of-line
 bindkey '^E' end-of-line
 bindkey '^B' backward-char
 bindkey '^F' forward-char
 bindkey '^P' up-line-or-history
 bindkey '^N' down-line-or-history
-bindkey '^[[A' history-substring-search-up 2>/dev/null
-bindkey '^[[B' history-substring-search-down 2>/dev/null
-bindkey '^[[H' beginning-of-line
-bindkey '^[[F' end-of-line
-bindkey '^[[3~' delete-char
-bindkey '^[[1;5C' forward-word
-bindkey '^[[1;5D' backward-word
-bindkey '^H' backward-kill-word
+bindkey '^K' kill-line
+bindkey '^U' backward-kill-line
+bindkey '^W' backward-kill-word
+bindkey '^Y' yank
+
+# Săgeți - multiple variante pentru compatibilitate
+bindkey '^[[C' forward-char           # Săgeată dreapta (xterm)
+bindkey '^[[D' backward-char          # Săgeată stânga (xterm)
+bindkey '^[OC' forward-char           # Săgeată dreapta (application mode)
+bindkey '^[OD' backward-char          # Săgeată stânga (application mode)
+
+# Săgeți sus/jos pentru history
+bindkey '^[[A' up-line-or-history     # Săgeată sus
+bindkey '^[[B' down-line-or-history   # Săgeată jos
+bindkey '^[OA' up-line-or-history     # Săgeată sus (application mode)
+bindkey '^[OB' down-line-or-history   # Săgeată jos (application mode)
+
+# Home/End
+bindkey '^[[H' beginning-of-line      # Home (xterm)
+bindkey '^[[F' end-of-line            # End (xterm)
+bindkey '^[OH' beginning-of-line      # Home (application mode)
+bindkey '^[OF' end-of-line            # End (application mode)
+bindkey '^[[1~' beginning-of-line     # Home (alternate)
+bindkey '^[[4~' end-of-line           # End (alternate)
+
+# Delete/Backspace
+bindkey '^[[3~' delete-char           # Delete
+bindkey '^?' backward-delete-char     # Backspace
+bindkey '^H' backward-delete-char     # Ctrl+H (backspace)
+
+# Ctrl+Arrow pentru word movement
+bindkey '^[[1;5C' forward-word        # Ctrl+Right
+bindkey '^[[1;5D' backward-word       # Ctrl+Left
+bindkey '^[f' forward-word            # Alt+f
+bindkey '^[b' backward-word           # Alt+b
+
+# Delete word
+bindkey '^[d' kill-word               # Alt+d - delete word forward
+bindkey '^[^?' backward-kill-word     # Alt+Backspace - delete word backward
+
+# History search
 bindkey '^R' history-incremental-search-backward
+bindkey '^S' history-incremental-search-forward
+
+# Custom widgets
 bindkey '^ ' file_explorer_widget
 bindkey '^X^C' toggle_clipboard_bar
 
@@ -4031,8 +4129,9 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
-  WELCOME_SHOWN=1
+# Intro cinematric - doar o dată per sesiune tmux
+if [[ -o interactive ]] && [[ -z "$_CYBER_INTRO_SHOWN" ]] && [[ -n "$TMUX" ]]; then
+  export _CYBER_INTRO_SHOWN=1
   CYBER_TOPBAR_ENABLED=0
   cinematic_intro
   CYBER_TOPBAR_ENABLED=1
@@ -4182,7 +4281,8 @@ apply_cursor_state() {
     printf '%b' "${CURSOR_STATES[$state]}"
 
     # Set cursor color (Kitty/compatible terminals)
-    if [[ "$TERM" == *"kitty"* ]]; then
+    # Verificăm KITTY_WINDOW_ID pentru că în tmux, TERM nu conține "kitty"
+    if [[ -n "$KITTY_WINDOW_ID" ]] || [[ "$TERM" == *"kitty"* ]]; then
         printf '%b' "${CURSOR_COLORS[$state]}"
     fi
 }

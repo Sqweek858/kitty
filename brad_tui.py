@@ -54,7 +54,7 @@ def draw_frame(cols, rows, t):
             g = (base[0]*(1-k) + tip[0]*k,
                  base[1]*(1-k) + tip[1]*k,
                  base[2]*(1-k) + tip[2]*k)
-            shade = (g[0](0.3+0.7*ndotl), g[1](0.3+0.7*ndotl), g[2]*(0.3+0.7*ndotl))
+            shade = (g[0]*(0.3+0.7*ndotl), g[1]*(0.3+0.7*ndotl), g[2]*(0.3+0.7*ndotl))
             buf[sy][x] = (int(shade[0]), int(shade[1]), int(shade[2]))
 
     # trunchi
