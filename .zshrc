@@ -211,6 +211,13 @@ zinit wait lucid for \
 # SECTION 7: AUTOSUGGESTIONS CONFIGURATION
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
+# ZSH-AUTOSUGGESTIONS - configurare pentru a nu fi intruziv
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=240'        # Gri închis, subtil
+ZSH_AUTOSUGGEST_STRATEGY=(history completion)   # Ordine: history apoi completion
+ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20              # Nu sugera pentru comenzi lungi
+ZSH_AUTOSUGGEST_USE_ASYNC=true                  # Async pentru performanță
+ZSH_AUTOSUGGEST_MANUAL_REBIND=1                 # Evită rebind-uri automate
+
 typeset -gA FAST_HIGHLIGHT_STYLES
 FAST_HIGHLIGHT_STYLES[default]='fg=252'
 FAST_HIGHLIGHT_STYLES[unknown-token]='fg=196,bold'
@@ -582,8 +589,12 @@ cyber_topbar_reset_scroll_region() {
   [[ -t 1 ]] || return
   # printf '\e[r'              # reset full scroll region
 }
-cyber_enable_mouse()  { [[ -t 1 ]] || return; printf '\e[?1000h\e[?1006h'; }
-cyber_disable_mouse() { [[ -t 1 ]] || return; printf '\e[?1000l\e[?1006l'; }
+# DEZACTIVAT - Mouse tracking interferează cu navigarea cursor (săgeți, Ctrl+A, etc.)
+# Dacă vrei mouse clicks pe topbar, decomentează liniile originale:
+# cyber_enable_mouse()  { [[ -t 1 ]] || return; printf '\e[?1000h\e[?1006h'; }
+# cyber_disable_mouse() { [[ -t 1 ]] || return; printf '\e[?1000l\e[?1006l'; }
+cyber_enable_mouse()  { :; }  # No-op - mouse dezactivat
+cyber_disable_mouse() { :; }  # No-op
 
 cyber_clear_utility_bar() {
   [[ -t 1 ]] || return
@@ -719,25 +730,7 @@ cyber_toggle_doctor_widget() {
 zle -N cyber_toggle_doctor_widget
 bindkey '^[d' cyber_toggle_doctor_widget
 
-cyber_toggle_parallax_widget() {
-  (( PARALLAX_ENABLED = !PARALLAX_ENABLED ))
-  zle -M "Parallax: $([[ $PARALLAX_ENABLED -eq 1 ]] && echo ON || echo OFF)"
-
-  if (( PARALLAX_ENABLED )); then
-    # dacă mai rulează animația de intro, oprește-o
-    if [[ -n "${CYBER_GRADIENT_PID:-}" ]] && kill -0 "$CYBER_GRADIENT_PID" 2>/dev/null; then
-      kill "$CYBER_GRADIENT_PID" 2>/dev/null
-      CYBER_GRADIENT_PID=""
-    fi
-    parallax_start
-  else
-    parallax_stop
-  fi
-
-  typeset -f cyber_draw_utility_bar >/dev/null 2>&1 && cyber_draw_utility_bar
-}
-zle -N cyber_toggle_parallax_widget
-bindkey '^[p' cyber_toggle_parallax_widget
+# cyber_toggle_parallax_widget - MOVED to SECTION 16 (around line 2399)
 
 cyber_help_widget() {
   zle -M "Keys: Alt+U topbar | Alt+D doctor | Alt+P parallax | ? query | fr cmd (foldrun)"
@@ -899,7 +892,7 @@ cyber_precmd_restore_stderr_doctor_and_bar() {
     CYBER_LAST_CMD=""
 
     # topbar persistent (idle)
-    if (( CYBER_TOPBAR_VISIBLE )); then
+    if (( CYBER_TOPBAR_ENABLED )); then
         cyber_topbar_apply_scroll_region 2>/dev/null
         cyber_enable_mouse
         cyber_draw_utility_bar 2>/dev/null
@@ -2187,10 +2180,7 @@ cinematic_intro() {
 
     # Show cursor
     printf '\033[?25h'
-# Clear pentru parallax
-    clear
-
-    # Mark as shown
+    # Mark as shown - NU facem clear aici pentru că șterge output-ul
     WELCOME_SHOWN=1
 }
 
@@ -2244,18 +2234,25 @@ _draw_static_stars() {
   (( STARS_DRAWN )) && return
 
   local cols=${COLUMNS:-80} lines=${LINES:-24}
-  local num_stars=$(( cols * lines / 35 ))
+  # Limitează stelele la primele 5 rânduri pentru a nu acoperi output-ul
+  local star_zone=5
+  local num_stars=$(( cols * star_zone / 20 ))  # mai puține stele
   local i h x y brightness char r g b color_type
 
   STAR_POSITIONS=()
 
   printf '\e[s'
 
+  # Seed random bazat pe timp pentru variație la fiecare pornire
+  local seed=$((EPOCHSECONDS % 10000 + RANDOM))
+  
   for ((i=0; i<num_stars; i++)); do
-    h=$(( (1103515245 * (i * 7919 + 104729) + 12345) & 0x7FFFFFFF ))
+    # Hash cu seed variabil pentru poziții diferite la fiecare sesiune
+    h=$(( (1103515245 * (i * 7919 + seed) + 12345) & 0x7FFFFFFF ))
     x=$(( (h % (cols - 4)) + 3 ))
-    h=$(( (h * 16807 + 1) & 0x7FFFFFFF ))
-    y=$(( (h % (lines - 6)) + 4 ))
+    h=$(( (h * 16807 + RANDOM % 1000 + 1) & 0x7FFFFFFF ))
+    # Y limitat la primele star_zone rânduri (nu peste output)
+    y=$(( (h % star_zone) + 1 ))
 
     # Salvează și tipul de culoare
     color_type=$(( h % 8 ))
@@ -3971,11 +3968,23 @@ precmd() {
     detect_project
     CYBER_LAST_COMMAND="" CYBER_LAST_COMMAND_TIME=0
 }
-# Forțează redesenarea barei după fiecare comandă
+# Forțează redesenarea barei după fiecare comandă (în precmd = DUPĂ ce comanda s-a terminat)
 _cyber_redraw_bar_precmd() {
-    (( CYBER_TOPBAR_ENABLED )) && cyber_draw_utility_bar 2>/dev/null
+    # Nu desena dacă e dezactivat sau dacă suntem în mijlocul unei comenzi
+    (( CYBER_TOPBAR_ENABLED )) || return
+    (( CYBER_TERMINAL_BUSY )) && return
+    
+    # Mică pauză să se finalizeze output-ul
+    cyber_draw_utility_bar 2>/dev/null
 }
 add-zsh-hook precmd _cyber_redraw_bar_precmd
+
+# Ascunde bara când începe o comandă
+_cyber_hide_bar_preexec() {
+    # Curăță linia barei înainte de comandă pentru a evita artefacte
+    cyber_clear_utility_bar 2>/dev/null
+}
+add-zsh-hook preexec _cyber_hide_bar_preexec
 
 # KEY BINDINGS
 bindkey -e
@@ -4031,14 +4040,54 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
-  WELCOME_SHOWN=1
-  CYBER_TOPBAR_ENABLED=0
-  cinematic_intro
-  CYBER_TOPBAR_ENABLED=1
+# Welcome intro - rulează în TMUX sau fără TMUX dacă e interactiv
+if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]]; then
+  # Verifică dacă suntem în TMUX sau dacă utilizatorul nu folosește TMUX
+  if [[ -n "$TMUX" ]] || [[ -z "$TMUX" && ! -x "$(command -v tmux)" ]]; then
+    export WELCOME_SHOWN=1
+    CYBER_TOPBAR_ENABLED=0
+    cinematic_intro
+    CYBER_TOPBAR_ENABLED=1
+  fi
 fi
 if [[ -o interactive ]] && (( PARALLAX_ENABLED )); then
   parallax_start
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FINAL KEYBINDINGS - După toate plugin-urile pentru a avea prioritate maximă
+# ═══════════════════════════════════════════════════════════════════════════════
+if [[ -o interactive ]]; then
+    # Forțează emacs mode pentru navigare consistentă
+    bindkey -e
+    
+    # Săgeți - TREBUIE să meargă!
+    bindkey '^[[C' forward-char          # Săgeată dreapta
+    bindkey '^[[D' backward-char         # Săgeată stânga  
+    bindkey '^[[A' up-line-or-history    # Săgeată sus
+    bindkey '^[[B' down-line-or-history  # Săgeată jos
+    
+    # Home/End
+    bindkey '^[[H' beginning-of-line     # Home
+    bindkey '^[[F' end-of-line           # End
+    bindkey '^[[1~' beginning-of-line    # Home (alt)
+    bindkey '^[[4~' end-of-line          # End (alt)
+    
+    # Ctrl+săgeți pentru cuvinte
+    bindkey '^[[1;5C' forward-word       # Ctrl+Dreapta
+    bindkey '^[[1;5D' backward-word      # Ctrl+Stânga
+    
+    # Delete/Backspace
+    bindkey '^[[3~' delete-char          # Delete
+    bindkey '^?' backward-delete-char    # Backspace
+    bindkey '^H' backward-delete-char    # Ctrl+H (backspace alternativ)
+    
+    # Ctrl combinations
+    bindkey '^A' beginning-of-line
+    bindkey '^E' end-of-line
+    bindkey '^K' kill-line
+    bindkey '^U' backward-kill-line
+    bindkey '^W' backward-kill-word
 fi
 
 # HELP
@@ -4182,7 +4231,8 @@ apply_cursor_state() {
     printf '%b' "${CURSOR_STATES[$state]}"
 
     # Set cursor color (Kitty/compatible terminals)
-    if [[ "$TERM" == *"kitty"* ]]; then
+    # Verifică KITTY_WINDOW_ID (mai sigur) sau TERM conține kitty
+    if [[ -n "$KITTY_WINDOW_ID" ]] || [[ "$TERM" == *"kitty"* ]] || [[ "$TERM" == "xterm-kitty" ]]; then
         printf '%b' "${CURSOR_COLORS[$state]}"
     fi
 }
