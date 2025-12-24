@@ -44,7 +44,9 @@ setopt MULTIOS
 setopt EXTENDED_GLOB
 setopt NO_BEEP
 setopt INTERACTIVE_COMMENTS
-setopt CORRECT
+# Autocorectul built-in din zsh (setopt CORRECT) poate afișa prompt-uri intruzive
+# care „se bagă” peste scris. Îl dezactivăm și lăsăm doar sugestii non-intruzive.
+unsetopt CORRECT
 # setopt CORRECT_ALL
 setopt AUTO_LIST
 setopt AUTO_MENU
@@ -314,7 +316,9 @@ zstyle ':completion:*:complete:-command-::commands' ignored-patterns '*\~'
 # SECTION 9: FZF CONFIGURATION
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
-zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
+# fzf-tab în tmux-popup tinde să „sară” peste scris/overlay-uri.
+# Îl rulăm inline (layout reverse) ca să stea jos, lângă bara de utilități.
+zstyle ':fzf-tab:*' fzf-command 'fzf --height=40% --layout=reverse --border --info=inline'
 zstyle ':fzf-tab:*' fzf-flags --border=rounded --height=60% --layout=reverse --info=inline
 zstyle ':fzf-tab:*' fzf-pad 4
 zstyle ':fzf-tab:*' fzf-min-height 20
@@ -571,23 +575,36 @@ typeset -gi CYBER_STDERR_FD=-1
 
 typeset -gi CYBER_TOPBAR_ENABLED=${CYBER_TOPBAR_ENABLED:-1}
 typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-1}
+typeset -gi CYBER_MOUSE_UI=${CYBER_MOUSE_UI:-0}   # 0 = mouse normal (select/copy), 1 = mouse tracking for UI
 
 cyber_topbar_apply_scroll_region() {
   [[ -t 1 ]] || return
-  # Nu mai manipulăm scroll region - cauzează probleme
-  return 0
+  # Rezervă 1 rând sus pentru parallax header (opțional) și 1 rând jos pentru utility bar.
+  # Asta previne ca UI-ul să fie „mâncat” de scrollback și reduce interferența cu output-ul.
+  local top=1
+  if (( ${PARALLAX_ENABLED:-0} )); then
+    top=2
+  fi
+  local bottom=$(( ${LINES:-24} - 1 ))
+  (( bottom < top )) && return 0
+  printf '\e[%d;%dr' "$top" "$bottom"
 }
 
 cyber_topbar_reset_scroll_region() {
   [[ -t 1 ]] || return
-  # printf '\e[r'              # reset full scroll region
+  printf '\e[r'              # reset full scroll region
 }
-cyber_enable_mouse()  { [[ -t 1 ]] || return; printf '\e[?1000h\e[?1006h'; }
-cyber_disable_mouse() { [[ -t 1 ]] || return; printf '\e[?1000l\e[?1006l'; }
+cyber_enable_mouse()  { [[ -t 1 ]] || return; (( CYBER_MOUSE_UI )) || return 0; printf '\e[?1000h\e[?1006h'; }
+cyber_disable_mouse() { [[ -t 1 ]] || return; (( CYBER_MOUSE_UI )) || return 0; printf '\e[?1000l\e[?1006l'; }
 
 cyber_clear_utility_bar() {
   [[ -t 1 ]] || return
   printf '\e[s\e[%d;1H\e[2K\e[u' "${LINES:-24}"
+}
+
+cyber_clear_parallax_header() {
+  [[ -t 1 ]] || return
+  printf '\e[s\e[1;1H\e[2K\e[u'
 }
 
 cyber_parallax_badge() {
@@ -600,9 +617,30 @@ cyber_parallax_badge() {
 cyber_draw_parallax_header() {
   [[ -t 1 ]] || return
   (( PARALLAX_ENABLED )) || return
-  printf '\e[s'
-  generate_parallax_bg 0
-  printf '\e[u'
+  local cols=${COLUMNS:-80}
+  (( cols < 20 )) && return
+
+  # Header-only starfield (safe): nu atinge zona de output, deci nu „șterge” rezultatele.
+  # Seed determinist: se schimbă per comandă/scroll offset.
+  local seed=$(( (${PARALLAX_BG_OFFSET:-0} + ${EPOCHSECONDS:-0}) % 2147483647 ))
+  local i pos out=""
+  for ((i=1; i<=cols; i++)); do out+=" "; done
+
+  local stars=$(( cols / 8 ))
+  (( stars < 6 )) && stars=6
+  for ((i=0; i<stars; i++)); do
+    seed=$(( (1103515245 * seed + 12345) & 0x7fffffff ))
+    pos=$(( (seed % cols) + 1 ))
+    case $(( seed % 5 )) in
+      0) out[$pos]="." ;;
+      1) out[$pos]="·" ;;
+      2) out[$pos]="∙" ;;
+      3) out[$pos]="•" ;;
+      4) out[$pos]="✦" ;;
+    esac
+  done
+
+  printf '\e[s\e[1;1H\e[2K%b%s%b\e[u' "${CYBER_COLORS[dark]}" "$out" "${CYBER_STYLE[reset]}"
 }
 
 cyber_draw_utility_bar() {
@@ -2242,148 +2280,33 @@ parallax_scroll() {
 _draw_static_stars() {
   [[ -t 1 ]] || return
   (( STARS_DRAWN )) && return
-
-  local cols=${COLUMNS:-80} lines=${LINES:-24}
-  local num_stars=$(( cols * lines / 35 ))
-  local i h x y brightness char r g b color_type
-
-  STAR_POSITIONS=()
-
-  printf '\e[s'
-
-  for ((i=0; i<num_stars; i++)); do
-    h=$(( (1103515245 * (i * 7919 + 104729) + 12345) & 0x7FFFFFFF ))
-    x=$(( (h % (cols - 4)) + 3 ))
-    h=$(( (h * 16807 + 1) & 0x7FFFFFFF ))
-    y=$(( (h % (lines - 6)) + 4 ))
-
-    # Salvează și tipul de culoare
-    color_type=$(( h % 8 ))
-    STAR_POSITIONS+=("$x:$y:$color_type")
-
-    brightness=$(( (h * 13) % 100 ))
-
-    # Caracter bazat pe brightness
-    if (( brightness > 85 )); then
-      char="✦"
-    elif (( brightness > 65 )); then
-      char="•"
-    elif (( brightness > 45 )); then
-      char="∙"
-    elif (( brightness > 25 )); then
-      char="·"
-    else
-      char="."
-    fi
-
-    # CULORI DIFERITE pentru fiecare stea
-    case $color_type in
-      0) # Cyan
-        r=$(( 40 + brightness )); g=$(( 180 + brightness/2 )); b=$(( 220 + brightness/3 )) ;;
-      1) # Magenta/Roz
-        r=$(( 180 + brightness/2 )); g=$(( 50 + brightness/2 )); b=$(( 180 + brightness/2 )) ;;
-      2) # Galben/Auriu
-        r=$(( 200 + brightness/3 )); g=$(( 180 + brightness/3 )); b=$(( 40 + brightness/3 )) ;;
-      3) # Verde
-        r=$(( 40 + brightness/2 )); g=$(( 180 + brightness/2 )); b=$(( 80 + brightness/2 )) ;;
-      4) # Portocaliu
-        r=$(( 220 + brightness/4 )); g=$(( 120 + brightness/3 )); b=$(( 30 + brightness/4 )) ;;
-      5) # Albastru
-        r=$(( 60 + brightness/2 )); g=$(( 100 + brightness/2 )); b=$(( 200 + brightness/3 )) ;;
-      6) # Alb/Argintiu
-        r=$(( 160 + brightness/2 )); g=$(( 170 + brightness/2 )); b=$(( 190 + brightness/2 )) ;;
-      7) # Roșu
-        r=$(( 200 + brightness/3 )); g=$(( 50 + brightness/3 )); b=$(( 60 + brightness/3 )) ;;
-    esac
-
-    (( r > 255 )) && r=255; (( g > 255 )) && g=255; (( b > 255 )) && b=255
-    printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s' "$y" "$x" "$r" "$g" "$b" "$char"
-  done
-
-  printf '\e[0m\e[u'
+  # Safe mode: desenăm doar header-ul (rândul 1), ca să nu „mâncăm” output-ul comenzii.
+  typeset -f cyber_draw_parallax_header >/dev/null 2>&1 && cyber_draw_parallax_header
   STARS_DRAWN=1
 }
 
-# Pâlpâit LENT - schimbă doar câteva stele, PĂSTREAZĂ CULOAREA
+# Pâlpâit (safe): refresh header-ul ocazional (fără background loop)
 _twinkle_few_stars() {
   [[ -t 1 ]] || return
-  (( ${#STAR_POSITIONS[@]} == 0 )) && return
-
-  local total=${#STAR_POSITIONS[@]}
-  local to_twinkle=$(( total / 12 + 1 ))
-  local i idx pos x y color_type brightness char r g b
-
-  printf '\e[s'
-
-  for ((i=0; i<to_twinkle; i++)); do
-    idx=$(( RANDOM % total + 1 ))
-    pos="${STAR_POSITIONS[$idx]}"
-    x=${pos%%:*}
-    local rest=${pos#*:}
-    y=${rest%%:*}
-    color_type=${rest##*:}
-
-    brightness=$(( RANDOM % 100 ))
-
-    # Caracter bazat pe brightness
-    if (( brightness > 85 )); then
-      char="✦"
-    elif (( brightness > 60 )); then
-      char="•"
-    elif (( brightness > 35 )); then
-      char="∙"
-    elif (( brightness > 15 )); then
-      char="·"
-    else
-      char="."
-    fi
-
-    # Aceeași culoare ca la generare, dar cu brightness diferit
-    case $color_type in
-      0) # Cyan
-        r=$(( 30 + brightness )); g=$(( 150 + brightness/2 )); b=$(( 200 + brightness/3 )) ;;
-      1) # Magenta/Roz
-        r=$(( 150 + brightness/2 )); g=$(( 40 + brightness/2 )); b=$(( 150 + brightness/2 )) ;;
-      2) # Galben/Auriu
-        r=$(( 180 + brightness/3 )); g=$(( 150 + brightness/3 )); b=$(( 30 + brightness/4 )) ;;
-      3) # Verde
-        r=$(( 30 + brightness/2 )); g=$(( 150 + brightness/2 )); b=$(( 60 + brightness/2 )) ;;
-      4) # Portocaliu
-        r=$(( 200 + brightness/4 )); g=$(( 100 + brightness/3 )); b=$(( 20 + brightness/5 )) ;;
-      5) # Albastru
-        r=$(( 50 + brightness/2 )); g=$(( 80 + brightness/2 )); b=$(( 180 + brightness/3 )) ;;
-      6) # Alb/Argintiu
-        r=$(( 140 + brightness/2 )); g=$(( 150 + brightness/2 )); b=$(( 170 + brightness/2 )) ;;
-      7) # Roșu
-        r=$(( 180 + brightness/3 )); g=$(( 40 + brightness/4 )); b=$(( 50 + brightness/4 )) ;;
-    esac
-
-    (( r > 255 )) && r=255; (( g > 255 )) && g=255; (( b > 255 )) && b=255
-    printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s' "$y" "$x" "$r" "$g" "$b" "$char"
-  done
-
-  printf '\e[0m\e[u'
+  STARS_DRAWN=0
+  _draw_static_stars
 }
 
 parallax_tick() {
-  _draw_static_stars
-  while (( PARALLAX_ENABLED )); do
-    sleep 0.4
-    _twinkle_few_stars
-  done
+  :  # (dezactivat: loop-ul în background suprascria output-ul comenzii)
 }
 
 parallax_start() {
   (( PARALLAX_ENABLED )) || return
-  if [[ -z "$PARALLAX_PID" ]] || ! kill -0 "$PARALLAX_PID" 2>/dev/null; then
-    parallax_tick &!
-    PARALLAX_PID=$!
-  fi
+  PARALLAX_PID=""
+  STARS_DRAWN=0
+  _draw_static_stars
 }
 
 parallax_stop() {
-  [[ -n "$PARALLAX_PID" ]] && kill "$PARALLAX_PID" 2>/dev/null
   PARALLAX_PID=""
+  STARS_DRAWN=0
+  typeset -f cyber_clear_parallax_header >/dev/null 2>&1 && cyber_clear_parallax_header
 }
 
 parallax_redraw_now() {
@@ -2394,20 +2317,8 @@ parallax_redraw_now() {
 # Funcții de compatibilitate
 generate_parallax_bg() { _draw_static_stars; }
 parallax_draw_fullscreen_skip() { :; }
-cyber_draw_parallax_header() { :; }
 
-cyber_toggle_parallax_widget() {
-  (( PARALLAX_ENABLED = !PARALLAX_ENABLED ))
-  if (( PARALLAX_ENABLED )); then
-    parallax_start
-    zle -M "✦ Stars: ON"
-  else
-    parallax_stop
-    zle -M "✦ Stars: OFF"
-  fi
-}
-zle -N cyber_toggle_parallax_widget
-bindkey '^[p' cyber_toggle_parallax_widget
+# (evităm redefiniri aici: widget-ul cyber_toggle_parallax_widget este definit mai sus)
 #\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 # SECTION 17: FEATURE 6 - NLP FOR COMMAND CORRECTIONS
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -3945,6 +3856,10 @@ command_not_found_handler() {
 preexec() {
     typeset -f cyber_preexec_capture_stderr >/dev/null 2>&1 && cyber_preexec_capture_stderr
     typeset -f cyber_disable_mouse >/dev/null 2>&1 && cyber_disable_mouse
+    # Ascunde UI-ul înainte să ruleze comanda (ca să nu fie „călcat” de output)
+    typeset -f cyber_clear_utility_bar >/dev/null 2>&1 && cyber_clear_utility_bar
+    typeset -f cyber_clear_parallax_header >/dev/null 2>&1 && cyber_clear_parallax_header
+    typeset -f cyber_topbar_reset_scroll_region >/dev/null 2>&1 && cyber_topbar_reset_scroll_region
     CYBER_LAST_COMMAND="$1"
     CYBER_LAST_COMMAND_TIME=$EPOCHSECONDS
     CYBER_TERMINAL_BUSY=1
@@ -3954,7 +3869,6 @@ preexec() {
 precmd() {
     local last_exit=$?
     # typeset -f cyber_precmd_restore_stderr_doctor_and_bar >/dev/null 2>&1 && cyber_precmd_restore_stderr_doctor_and_bar "$last_exit"
-    typeset -f cyber_enable_mouse >/dev/null 2>&1 && cyber_enable_mouse
     CYBER_LAST_EXIT_CODE=$last_exit
     local dur=0
     [[ -n "$CYBER_LAST_COMMAND_TIME" ]] && dur=$((EPOCHSECONDS - CYBER_LAST_COMMAND_TIME))
@@ -3970,15 +3884,18 @@ precmd() {
 
     detect_project
     CYBER_LAST_COMMAND="" CYBER_LAST_COMMAND_TIME=0
-}
-# Forțează redesenarea barei după fiecare comandă
-_cyber_redraw_bar_precmd() {
+
+    # UI persistent după comandă (idle): scroll region + parallax header + utility bar
+    typeset -f cyber_topbar_apply_scroll_region >/dev/null 2>&1 && cyber_topbar_apply_scroll_region
+    typeset -f cyber_draw_parallax_header >/dev/null 2>&1 && cyber_draw_parallax_header
     (( CYBER_TOPBAR_ENABLED )) && cyber_draw_utility_bar 2>/dev/null
 }
-add-zsh-hook precmd _cyber_redraw_bar_precmd
+ # (nu mai folosim add-zsh-hook separat; precmd se ocupă de redraw)
 
 # KEY BINDINGS
-bindkey -e
+# Nu reinițializăm keymap-ul aici (bindkey -e) fiindcă resetează bind-urile custom
+# (ex: Alt+U/D/P etc.) definite mai sus. EMACS mode e deja setat prin `setopt EMACS`.
+# bindkey -e
 bindkey '^[[C' forward-char        # Săgeată dreapta
 bindkey '^[[D' backward-char       # Săgeată stânga
 bindkey '^A' beginning-of-line
@@ -3996,7 +3913,8 @@ bindkey '^[[1;5C' forward-word
 bindkey '^[[1;5D' backward-word
 bindkey '^H' backward-kill-word
 bindkey '^R' history-incremental-search-backward
-bindkey '^ ' file_explorer_widget
+# Ctrl+Space trimite NUL (Ctrl+@) în majoritatea terminalelor/tmux.
+bindkey '^@' file_explorer_widget
 bindkey '^X^C' toggle_clipboard_bar
 
 
@@ -4024,6 +3942,9 @@ if [[ -o interactive ]]; then
     zinit ice lucid wait"20"
     zinit light zsh-users/zsh-syntax-highlighting
 fi
+
+# Safety: asigură că autocorectul zsh nu pornește prompt-uri interactive peste input.
+unsetopt CORRECT
 
 # INIT
 mkdir -p "$CYBER_DATA_DIR"/{history,macros,profiles,clipboard,timelines} "$CYBER_CACHE_DIR" "$CYBER_CONFIG_DIR" 2>/dev/null
@@ -4182,7 +4103,7 @@ apply_cursor_state() {
     printf '%b' "${CURSOR_STATES[$state]}"
 
     # Set cursor color (Kitty/compatible terminals)
-    if [[ "$TERM" == *"kitty"* ]]; then
+    if [[ "$TERM" == *"kitty"* ]] || [[ -n "${KITTY_WINDOW_ID:-}" ]]; then
         printf '%b' "${CURSOR_COLORS[$state]}"
     fi
 }
