@@ -2206,7 +2206,7 @@ quick_welcome() {
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 # SECTION 16: FEATURE 5 - PARALLAX & DEPTH ILLUSION
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
-typeset -g PARALLAX_ENABLED=${PARALLAX_ENABLED:-1}
+typeset -g PARALLAX_ENABLED=${PARALLAX_ENABLED:-0}
 typeset -g PARALLAX_BG_OFFSET=0
 typeset -gi PARALLAX_PX=0
 typeset -gi PARALLAX_PY=0
@@ -4031,7 +4031,7 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
+if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]]; then
   WELCOME_SHOWN=1
   CYBER_TOPBAR_ENABLED=0
   cinematic_intro
@@ -4218,3 +4218,107 @@ zle-keymap-select() {
 zle -N zle-keymap-select
 zle-line-finish() { cursor_update_widget; }
 zle -N zle-line-finish
+
+# -----------------------------------------------------------------------------
+# USER FIXES & OVERRIDES
+# -----------------------------------------------------------------------------
+
+# Fix 1: Persistent Menu Bar
+_cyber_redraw_bar_precmd() {
+    CYBER_TOPBAR_ENABLED=1
+    cyber_draw_utility_bar 2>/dev/null
+}
+
+# Fix 2: Keybinds
+bindkey -e
+bindkey '^[[1;5C' forward-word
+bindkey '^[[1;5D' backward-word
+bindkey '^[[H' beginning-of-line
+bindkey '^[[F' end-of-line
+bindkey '^[[A' up-line-or-history
+bindkey '^[[B' down-line-or-history
+bindkey '^[[3~' delete-char
+bindkey '^?' backward-delete-char
+bindkey '^H' backward-delete-char
+
+# Fix 3: Autocorrect/Doctor at bottom
+show_command_doctor() {
+    local exit_code=$1 command="$2" error_output="$3"
+
+    (( CYBER_DOCTOR_ENABLED == 1 )) || return
+    [[ $exit_code -eq 0 ]] && return
+    [[ -z "$error_output" ]] && return
+
+    # Anti-spam
+    local key="${exit_code}|${command}|${error_output}"
+    local hash=""
+    hash="$(printf '%s' "$key" | command sha1sum 2>/dev/null | command awk '{print $1}')"
+    [[ -n "$hash" && "$hash" == "$CYBER_DOCTOR_LAST_HASH" ]] && return
+    [[ -n "$hash" ]] && CYBER_DOCTOR_LAST_HASH="$hash"
+
+    local error_type=""
+    for pattern in "${(@k)COMMAND_DOCTOR_PATTERNS}"; do
+        [[ "$error_output" == "$pattern" ]] && { error_type="${COMMAND_DOCTOR_PATTERNS[$pattern]}"; break; }
+    done
+    [[ -z "$error_type" ]] && error_type="unknown"
+
+    local -a suggestions
+    suggestions=("${(@f)$(generate_fix_suggestions "$error_type" "$error_output" "$command")}")
+
+    # Draw at bottom
+    local h=8
+    local start_line=$(( LINES - h - 1 ))
+    [[ $start_line -lt 1 ]] && start_line=1
+
+    printf '\e[s' # Save cursor
+    
+    printf '\e[%d;1H' "$start_line"
+    printf "  %b╭─ 🩺 COMMAND DOCTOR ─────────────────────────────────────────╮%b\e[K\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}"
+    printf "  %b│%b Exit code: %b%d%b   Tip: %b%s%b\e[K\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}" "${CYBER_COLORS[red]}" "$exit_code" "${CYBER_STYLE[reset]}" "${CYBER_COLORS[cyan]}" "$error_type" "${CYBER_STYLE[reset]}"
+    printf "  %b├───────────────────────────────────────────────────────────────┤%b\e[K\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}"
+    
+    local i=1
+    for s in "${suggestions[@]}"; do
+        [[ -n "$s" ]] && printf "  %b│%b  %b[%d]%b %s\e[K\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}" "${CYBER_COLORS[green]}" "$i" "${CYBER_STYLE[reset]}" "$s"
+        ((i++))
+        [[ $i -gt 3 ]] && break 
+    done
+    printf "  %b╰───────────────────────────────────────────────────────────────╯%b\e[K\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}"
+    
+    printf '\e[u' # Restore cursor
+}
+
+# Fix 4: Cinematic Intro with Brad
+cinematic_intro() {
+    [[ $WELCOME_SHOWN -eq 1 ]] && return
+    
+    clear
+    printf '\033[?25l'
+    
+    # Run Brad TUI for 6 seconds
+    if [[ -f /workspace/brad_tui.py ]]; then
+        python3 /workspace/brad_tui.py &
+        local pid=$!
+        sleep 6
+        kill $pid 2>/dev/null
+        wait $pid 2>/dev/null
+    fi
+    
+    clear
+    
+    # Quick text intro
+    printf "\n\n"
+    gradient_text_animated "    WELCOME TO CYBERPUNK SHELL    "
+    printf "\n"
+    
+    # System info
+    printf "  %bDate:%b %s\n" "${CYBER_COLORS[green]}" "${CYBER_STYLE[reset]}" "$(date)"
+    printf "  %bHost:%b %s\n" "${CYBER_COLORS[green]}" "${CYBER_STYLE[reset]}" "$(hostname)"
+    
+    printf '\033[?25h'
+    WELCOME_SHOWN=1
+}
+
+# Ensure cursor colors
+echo -ne "\033]12;#00ffff\007" # Cyan cursor
+
