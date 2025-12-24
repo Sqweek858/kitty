@@ -1,0 +1,559 @@
+#!/usr/bin/env zsh
+# =============================================================================
+# BRAD TUI ULTRA - ZSH INTEGRATION
+# =============================================================================
+# This file integrates Brad TUI Ultra with your zsh environment
+# Source this file from your .zshrc: source ~/.zshrc_brad_ultra_integration
+# =============================================================================
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# =============================================================================
+
+# Brad TUI Ultra configuration
+export BRAD_TUI_HOME="${HOME}/.config/brad_tui"
+export BRAD_TUI_BIN="${HOME}/bin"
+export BRAD_TUI_CACHE="${HOME}/.cache/brad_tui"
+export BRAD_TUI_LOG="${HOME}/.cache/brad_tui/logs"
+
+# Ensure directories exist
+[[ ! -d "$BRAD_TUI_HOME" ]] && mkdir -p "$BRAD_TUI_HOME"
+[[ ! -d "$BRAD_TUI_CACHE" ]] && mkdir -p "$BRAD_TUI_CACHE"
+[[ ! -d "$BRAD_TUI_LOG" ]] && mkdir -p "$BRAD_TUI_LOG"
+
+# Theme configuration
+export BRAD_TUI_THEME="${BRAD_TUI_THEME:-cyberpunk_christmas}"
+export BRAD_TUI_FPS="${BRAD_TUI_FPS:-30}"
+export BRAD_TUI_PARALLAX_STARS="${BRAD_TUI_PARALLAX_STARS:-200}"
+export BRAD_TUI_SNOWFLAKES="${BRAD_TUI_SNOWFLAKES:-100}"
+
+# Feature toggles (set to 0 to disable, 1 to enable)
+export BRAD_TUI_ENABLE_PARALLAX="${BRAD_TUI_ENABLE_PARALLAX:-1}"
+export BRAD_TUI_ENABLE_TREE="${BRAD_TUI_ENABLE_TREE:-1}"
+export BRAD_TUI_ENABLE_SNOW="${BRAD_TUI_ENABLE_SNOW:-1}"
+export BRAD_TUI_ENABLE_WELCOME="${BRAD_TUI_ENABLE_WELCOME:-1}"
+export BRAD_TUI_ENABLE_MENU="${BRAD_TUI_ENABLE_MENU:-1}"
+export BRAD_TUI_ENABLE_AUTOCORRECT="${BRAD_TUI_ENABLE_AUTOCORRECT:-1}"
+
+# Terminal configuration
+export BRAD_TUI_MIN_WIDTH="${BRAD_TUI_MIN_WIDTH:-80}"
+export BRAD_TUI_MIN_HEIGHT="${BRAD_TUI_MIN_HEIGHT:-24}"
+
+# Ensure true color support
+export COLORTERM=truecolor
+export TERM=xterm-256color
+
+# =============================================================================
+# PATH SETUP
+# =============================================================================
+
+# Add Brad TUI bin to PATH if not already there
+if [[ -d "$BRAD_TUI_BIN" ]]; then
+    case ":$PATH:" in
+        *":$BRAD_TUI_BIN:"*) ;;
+        *) export PATH="$BRAD_TUI_BIN:$PATH" ;;
+    esac
+fi
+
+# =============================================================================
+# ALIASES
+# =============================================================================
+
+# Main Brad TUI Ultra launcher
+alias brad='python3 ~/bin/brad_tui_ultra.py'
+alias brad-ultra='python3 ~/bin/brad_tui_ultra.py'
+
+# Legacy launchers (if available)
+alias brad-legacy='python3 ~/bin/brad_tui.py'
+alias brad-enhanced='python3 ~/bin/brad_tui_enhanced.py'
+
+# Configuration
+alias brad-config='$EDITOR ~/.config/brad_tui/config.toml'
+alias brad-theme='$EDITOR ~/.config/brad_tui/theme.toml'
+alias brad-reload='source ~/.zshrc_brad_ultra_integration'
+
+# Logs and debugging
+alias brad-logs='tail -f ~/.cache/brad_tui/logs/brad_tui_ultra.log'
+alias brad-errors='grep ERROR ~/.cache/brad_tui/logs/brad_tui_ultra.log'
+alias brad-clear-logs='rm -f ~/.cache/brad_tui/logs/*.log'
+alias brad-clear-cache='rm -rf ~/.cache/brad_tui/*'
+
+# Installation and updates
+alias brad-install='bash ~/bin/install_brad_ultra.sh'
+alias brad-uninstall='bash ~/bin/uninstall_brad_ultra.sh'
+alias brad-update='cd ~/brad-tui-ultra && git pull && bash install_brad_ultra.sh'
+
+# Feature toggles
+alias brad-parallax-on='export BRAD_TUI_ENABLE_PARALLAX=1'
+alias brad-parallax-off='export BRAD_TUI_ENABLE_PARALLAX=0'
+alias brad-tree-on='export BRAD_TUI_ENABLE_TREE=1'
+alias brad-tree-off='export BRAD_TUI_ENABLE_TREE=0'
+alias brad-snow-on='export BRAD_TUI_ENABLE_SNOW=1'
+alias brad-snow-off='export BRAD_TUI_ENABLE_SNOW=0'
+
+# =============================================================================
+# FUNCTIONS
+# =============================================================================
+
+# Check if Brad TUI Ultra is installed and configured
+brad_check_install() {
+    local status=0
+    
+    echo "🎄 Brad TUI Ultra Installation Check"
+    echo "======================================"
+    
+    # Check Python
+    if command -v python3 &>/dev/null; then
+        echo "✅ Python 3: $(python3 --version)"
+    else
+        echo "❌ Python 3: Not found"
+        status=1
+    fi
+    
+    # Check main executable
+    if [[ -f "$BRAD_TUI_BIN/brad_tui_ultra.py" ]]; then
+        echo "✅ Brad TUI Ultra: Installed"
+    else
+        echo "❌ Brad TUI Ultra: Not found at $BRAD_TUI_BIN/brad_tui_ultra.py"
+        status=1
+    fi
+    
+    # Check tmux
+    if command -v tmux &>/dev/null; then
+        echo "✅ Tmux: $(tmux -V)"
+    else
+        echo "⚠️  Tmux: Not found (optional but recommended)"
+    fi
+    
+    # Check terminal capabilities
+    if [[ "$COLORTERM" == "truecolor" ]] || [[ "$COLORTERM" == "24bit" ]]; then
+        echo "✅ True color support: Enabled"
+    else
+        echo "⚠️  True color support: Not detected"
+    fi
+    
+    # Check terminal size
+    local cols=$(tput cols 2>/dev/null || echo 0)
+    local lines=$(tput lines 2>/dev/null || echo 0)
+    if [[ $cols -ge $BRAD_TUI_MIN_WIDTH && $lines -ge $BRAD_TUI_MIN_HEIGHT ]]; then
+        echo "✅ Terminal size: ${cols}x${lines}"
+    else
+        echo "⚠️  Terminal size: ${cols}x${lines} (recommended: ${BRAD_TUI_MIN_WIDTH}x${BRAD_TUI_MIN_HEIGHT})"
+    fi
+    
+    # Check directories
+    echo "✅ Config directory: $BRAD_TUI_HOME"
+    echo "✅ Cache directory: $BRAD_TUI_CACHE"
+    echo "✅ Log directory: $BRAD_TUI_LOG"
+    
+    echo "======================================"
+    if [[ $status -eq 0 ]]; then
+        echo "✅ All checks passed! Brad TUI Ultra is ready."
+    else
+        echo "❌ Some issues detected. Please run: brad-install"
+    fi
+    
+    return $status
+}
+
+# Display Brad TUI Ultra status
+brad_status() {
+    echo "🎄 Brad TUI Ultra Status"
+    echo "========================"
+    echo "Theme: $BRAD_TUI_THEME"
+    echo "FPS: $BRAD_TUI_FPS"
+    echo "Parallax Stars: $BRAD_TUI_PARALLAX_STARS"
+    echo "Snowflakes: $BRAD_TUI_SNOWFLAKES"
+    echo ""
+    echo "Features:"
+    echo "  Parallax: $([ "$BRAD_TUI_ENABLE_PARALLAX" = "1" ] && echo "✅ Enabled" || echo "❌ Disabled")"
+    echo "  Tree: $([ "$BRAD_TUI_ENABLE_TREE" = "1" ] && echo "✅ Enabled" || echo "❌ Disabled")"
+    echo "  Snow: $([ "$BRAD_TUI_ENABLE_SNOW" = "1" ] && echo "✅ Enabled" || echo "❌ Disabled")"
+    echo "  Welcome: $([ "$BRAD_TUI_ENABLE_WELCOME" = "1" ] && echo "✅ Enabled" || echo "❌ Disabled")"
+    echo "  Menu: $([ "$BRAD_TUI_ENABLE_MENU" = "1" ] && echo "✅ Enabled" || echo "❌ Disabled")"
+    echo "  Autocorrect: $([ "$BRAD_TUI_ENABLE_AUTOCORRECT" = "1" ] && echo "✅ Enabled" || echo "❌ Disabled")"
+    echo "========================"
+}
+
+# Launch Brad TUI Ultra with custom settings
+brad_launch() {
+    local args=()
+    
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --theme)
+                export BRAD_TUI_THEME="$2"
+                shift 2
+                ;;
+            --fps)
+                export BRAD_TUI_FPS="$2"
+                shift 2
+                ;;
+            --no-parallax)
+                export BRAD_TUI_ENABLE_PARALLAX=0
+                shift
+                ;;
+            --no-tree)
+                export BRAD_TUI_ENABLE_TREE=0
+                shift
+                ;;
+            --no-snow)
+                export BRAD_TUI_ENABLE_SNOW=0
+                shift
+                ;;
+            --no-welcome)
+                export BRAD_TUI_ENABLE_WELCOME=0
+                shift
+                ;;
+            --minimal)
+                export BRAD_TUI_ENABLE_PARALLAX=0
+                export BRAD_TUI_ENABLE_TREE=0
+                export BRAD_TUI_ENABLE_SNOW=0
+                export BRAD_TUI_FPS=15
+                shift
+                ;;
+            --full)
+                export BRAD_TUI_ENABLE_PARALLAX=1
+                export BRAD_TUI_ENABLE_TREE=1
+                export BRAD_TUI_ENABLE_SNOW=1
+                export BRAD_TUI_FPS=30
+                shift
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    
+    python3 ~/bin/brad_tui_ultra.py "${args[@]}"
+}
+
+# Quick theme switcher
+brad_theme_switch() {
+    local themes=(
+        "cyberpunk_christmas"
+        "classic"
+        "matrix"
+        "ocean"
+        "sunset"
+        "nord"
+        "dracula"
+        "gruvbox"
+    )
+    
+    if [[ -z "$1" ]]; then
+        echo "Available themes:"
+        for theme in "${themes[@]}"; do
+            echo "  - $theme"
+        done
+        echo ""
+        echo "Usage: brad_theme_switch <theme_name>"
+    else
+        export BRAD_TUI_THEME="$1"
+        echo "✅ Theme set to: $1"
+        echo "Restart Brad TUI Ultra to see changes."
+    fi
+}
+
+# Performance preset switcher
+brad_performance() {
+    case "$1" in
+        low)
+            export BRAD_TUI_FPS=15
+            export BRAD_TUI_PARALLAX_STARS=50
+            export BRAD_TUI_SNOWFLAKES=30
+            echo "✅ Performance set to: LOW (CPU friendly)"
+            ;;
+        medium)
+            export BRAD_TUI_FPS=30
+            export BRAD_TUI_PARALLAX_STARS=100
+            export BRAD_TUI_SNOWFLAKES=60
+            echo "✅ Performance set to: MEDIUM (balanced)"
+            ;;
+        high)
+            export BRAD_TUI_FPS=30
+            export BRAD_TUI_PARALLAX_STARS=200
+            export BRAD_TUI_SNOWFLAKES=100
+            echo "✅ Performance set to: HIGH (full effects)"
+            ;;
+        ultra)
+            export BRAD_TUI_FPS=60
+            export BRAD_TUI_PARALLAX_STARS=500
+            export BRAD_TUI_SNOWFLAKES=200
+            echo "✅ Performance set to: ULTRA (maximum)"
+            ;;
+        *)
+            echo "Usage: brad_performance <low|medium|high|ultra>"
+            echo "Current settings:"
+            echo "  FPS: $BRAD_TUI_FPS"
+            echo "  Stars: $BRAD_TUI_PARALLAX_STARS"
+            echo "  Snowflakes: $BRAD_TUI_SNOWFLAKES"
+            ;;
+    esac
+}
+
+# Generate Brad TUI Ultra config file
+brad_generate_config() {
+    local config_file="$BRAD_TUI_HOME/config.toml"
+    
+    cat > "$config_file" << 'EOFCONFIG'
+# Brad TUI Ultra Configuration
+# =============================
+
+[general]
+theme = "cyberpunk_christmas"
+fps = 30
+log_level = "INFO"
+
+[features]
+parallax = true
+tree = true
+snow = true
+welcome = true
+menu = true
+autocorrect = true
+
+[parallax]
+stars = 200
+layers = 3
+speed_multiplier = 1.0
+twinkle = true
+
+[tree]
+height = 20
+lights = 50
+animation_speed = 1.0
+sway_enabled = true
+
+[snow]
+flakes = 100
+wind = 0.3
+gravity = 0.5
+
+[ui]
+menu_height = 1
+status_height = 1
+autocorrect_height = 5
+border_style = "gradient"
+
+[colors]
+# Theme colors (RGB values 0-255)
+background = [8, 10, 14]
+foreground = [180, 200, 255]
+accent = [0, 255, 255]
+success = [0, 255, 100]
+warning = [255, 200, 0]
+error = [255, 50, 50]
+
+[keybindings]
+# Custom keybindings (coming soon)
+EOFCONFIG
+
+    echo "✅ Config file created: $config_file"
+    echo "Edit with: brad-config"
+}
+
+# Display Brad TUI Ultra help
+brad_help() {
+    cat << 'EOFHELP'
+🎄 Brad TUI Ultra - Help
+=========================
+
+ALIASES:
+  brad                Launch Brad TUI Ultra
+  brad-ultra          Launch Brad TUI Ultra (explicit)
+  brad-legacy         Launch legacy Brad TUI
+  brad-enhanced       Launch enhanced Brad TUI
+  brad-config         Edit configuration
+  brad-reload         Reload Brad TUI configuration
+  brad-logs           View live logs
+  brad-errors         View error logs
+  brad-clear-logs     Clear all logs
+  brad-clear-cache    Clear cache
+
+FUNCTIONS:
+  brad_check_install       Check installation status
+  brad_status              Show current configuration
+  brad_launch [options]    Launch with custom options
+  brad_theme_switch        Switch theme
+  brad_performance         Set performance preset
+  brad_generate_config     Create config file
+  brad_help                Show this help
+
+LAUNCH OPTIONS:
+  --theme <name>      Set theme
+  --fps <number>      Set frame rate
+  --no-parallax       Disable parallax effect
+  --no-tree           Disable Christmas tree
+  --no-snow           Disable snow effect
+  --no-welcome        Skip welcome animation
+  --minimal           Minimal performance mode
+  --full              Full effects mode
+
+PERFORMANCE PRESETS:
+  brad_performance low      CPU friendly (15 FPS, fewer effects)
+  brad_performance medium   Balanced (30 FPS, moderate effects)
+  brad_performance high     Full effects (30 FPS, all effects)
+  brad_performance ultra    Maximum (60 FPS, maximum effects)
+
+THEMES:
+  - cyberpunk_christmas (default)
+  - classic
+  - matrix
+  - ocean
+  - sunset
+  - nord
+  - dracula
+  - gruvbox
+
+EXAMPLES:
+  # Launch with minimal effects
+  brad_launch --minimal
+
+  # Launch without snow
+  brad_launch --no-snow
+
+  # Set low performance mode
+  brad_performance low
+
+  # Switch theme
+  brad_theme_switch matrix
+
+  # Check installation
+  brad_check_install
+
+For more information, visit: https://github.com/your-repo/brad-tui-ultra
+=========================
+EOFHELP
+}
+
+# =============================================================================
+# KEYBINDINGS
+# =============================================================================
+
+# Bind function keys for Brad TUI operations (when not in Brad TUI)
+if [[ -z "$BRAD_TUI_ACTIVE" ]]; then
+    # F9 - Quick launch Brad TUI
+    bindkey -s '^[[20~' 'brad\n'
+    
+    # Alt+B - Quick status
+    bindkey -s '\eb' 'brad_status\n'
+    
+    # Alt+H - Quick help
+    bindkey -s '\eh' 'brad_help\n'
+fi
+
+# =============================================================================
+# PROMPT INTEGRATION
+# =============================================================================
+
+# Add Brad TUI indicator to prompt (if desired)
+brad_prompt_indicator() {
+    if [[ -n "$BRAD_TUI_ACTIVE" ]]; then
+        echo "🎄"
+    fi
+}
+
+# Optionally add to PROMPT
+# PROMPT='$(brad_prompt_indicator) '$PROMPT
+
+# =============================================================================
+# COMPLETION
+# =============================================================================
+
+# Brad TUI command completion
+_brad_commands() {
+    local -a commands
+    commands=(
+        'check:Check installation'
+        'status:Show status'
+        'launch:Launch with options'
+        'help:Show help'
+        'theme:Switch theme'
+        'performance:Set performance'
+        'config:Generate config'
+        'logs:View logs'
+        'errors:View errors'
+    )
+    _describe 'brad commands' commands
+}
+
+compdef _brad_commands brad_check_install brad_status brad_launch brad_help
+
+# Theme completion
+_brad_themes() {
+    local -a themes
+    themes=(
+        'cyberpunk_christmas'
+        'classic'
+        'matrix'
+        'ocean'
+        'sunset'
+        'nord'
+        'dracula'
+        'gruvbox'
+    )
+    _describe 'brad themes' themes
+}
+
+compdef _brad_themes brad_theme_switch
+
+# Performance completion
+_brad_performance_presets() {
+    local -a presets
+    presets=(
+        'low:CPU friendly'
+        'medium:Balanced'
+        'high:Full effects'
+        'ultra:Maximum'
+    )
+    _describe 'performance presets' presets
+}
+
+compdef _brad_performance_presets brad_performance
+
+# =============================================================================
+# INITIALIZATION
+# =============================================================================
+
+# Check if this is first run
+if [[ ! -f "$BRAD_TUI_HOME/.initialized" ]]; then
+    echo "🎄 Brad TUI Ultra - First Run Setup"
+    echo "===================================="
+    echo ""
+    echo "Initializing Brad TUI Ultra..."
+    
+    # Create config file
+    brad_generate_config
+    
+    # Run installation check
+    brad_check_install
+    
+    # Mark as initialized
+    touch "$BRAD_TUI_HOME/.initialized"
+    
+    echo ""
+    echo "✅ Setup complete!"
+    echo ""
+    echo "Quick start:"
+    echo "  brad               - Launch Brad TUI Ultra"
+    echo "  brad_help          - Show help"
+    echo "  brad_status        - Show status"
+    echo "  brad-config        - Edit configuration"
+    echo ""
+fi
+
+# =============================================================================
+# WELCOME MESSAGE (Optional)
+# =============================================================================
+
+# Uncomment to show welcome message on every shell start
+# if [[ -o interactive ]]; then
+#     echo "🎄 Brad TUI Ultra loaded. Type 'brad' to start or 'brad_help' for help."
+# fi
+
+# =============================================================================
+# END OF BRAD TUI ULTRA INTEGRATION
+# =============================================================================
