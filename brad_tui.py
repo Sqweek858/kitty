@@ -15,9 +15,29 @@ def clamp(x, a, b): return a if x < a else b if x > b else x
 def rgb(r,g,b): return f"\x1b[38;2;{int(r)};{int(g)};{int(b)}m"
 RESET = "\x1b[0m"
 
+SNOW = []
+
+def update_snow(W, H):
+    global SNOW
+    # Add new snow
+    if random.random() < 0.3:
+        SNOW.append([random.randint(0, W-1), 0])
+    
+    # Update positions
+    new_snow = []
+    for s in SNOW:
+        s[1] += 0.5 + random.random() * 0.5  # fall speed
+        s[0] += (random.random() - 0.5) * 0.5 # drift
+        if s[1] < H:
+            new_snow.append(s)
+    SNOW = new_snow
+
 def draw_frame(cols, rows, t):
     # canvas subpixel: width = cols*2, height = rows*4
     W, H = cols*2, rows*4
+    
+    update_snow(W, H)
+
     # centru și raze pentru con (arbore) în spațiul ecranului
     cx, cy = W//2, int(H*0.46)
     # parametri „3D” simulați
@@ -54,7 +74,7 @@ def draw_frame(cols, rows, t):
             g = (base[0]*(1-k) + tip[0]*k,
                  base[1]*(1-k) + tip[1]*k,
                  base[2]*(1-k) + tip[2]*k)
-            shade = (g[0](0.3+0.7*ndotl), g[1](0.3+0.7*ndotl), g[2]*(0.3+0.7*ndotl))
+            shade = (g[0]*(0.3+0.7*ndotl), g[1]*(0.3+0.7*ndotl), g[2]*(0.3+0.7*ndotl))
             buf[sy][x] = (int(shade[0]), int(shade[1]), int(shade[2]))
 
     # trunchi
@@ -106,6 +126,13 @@ def draw_frame(cols, rows, t):
                                   min(255,int(gc*0.7+col[1]*0.3)),
                                   min(255,int(bc*0.7+col[2]*0.3)))
 
+    # Zăpadă
+    for s in SNOW:
+        sx, sy = int(s[0]), int(s[1])
+        if 0 <= sx < W and 0 <= sy < H:
+             # Draw white dot
+             buf[sy][sx] = (255, 255, 255)
+
     # compunere în celule Braille
     out_lines = []
     for row in range(rows):
@@ -150,6 +177,13 @@ def main():
     sys.stdout.write("\x1b[2J\x1b[H")  # clear
     sys.stdout.flush()
 
+    duration = None
+    if len(sys.argv) > 1:
+        try:
+            duration = float(sys.argv[1])
+        except ValueError:
+            pass
+
     # dimensiunea consolei (în celule text)
     cols, rows = shutil.get_terminal_size((80, 24))
     # lasă puțin spațiu de margini
@@ -160,6 +194,9 @@ def main():
     try:
         while True:
             t = time.time() - t0
+            if duration is not None and t > duration:
+                break
+                
             frame = draw_frame(cols, rows, t)
             sys.stdout.write("\x1b[H")  # home
             sys.stdout.write(frame)

@@ -574,13 +574,13 @@ typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-1}
 
 cyber_topbar_apply_scroll_region() {
   [[ -t 1 ]] || return
-  # Nu mai manipulăm scroll region - cauzează probleme
-  return 0
+  # Reserve bottom line for status bar
+  printf '\e[1;%dr' $((LINES-1))
 }
 
 cyber_topbar_reset_scroll_region() {
   [[ -t 1 ]] || return
-  # printf '\e[r'              # reset full scroll region
+  printf '\e[r'
 }
 cyber_enable_mouse()  { [[ -t 1 ]] || return; printf '\e[?1000h\e[?1006h'; }
 cyber_disable_mouse() { [[ -t 1 ]] || return; printf '\e[?1000l\e[?1006l'; }
@@ -2070,6 +2070,10 @@ scan_line_effect() {
 
 # Full cinematic intro
 cinematic_intro() {
+    # Run Brad Tree animation for 4 seconds
+    python3 /workspace/brad_tui.py 4
+    clear
+
     # Check if intro already shown or should be skipped
     [[ $WELCOME_SHOWN -eq 1 ]] && return
     [[ $SKIP_INTRO -eq 1 ]] && return
@@ -2187,8 +2191,8 @@ cinematic_intro() {
 
     # Show cursor
     printf '\033[?25h'
-# Clear pentru parallax
-    clear
+    # Clear removed to prevent flickering
+    # clear
 
     # Mark as shown
     WELCOME_SHOWN=1
@@ -2367,18 +2371,11 @@ _twinkle_few_stars() {
 
 parallax_tick() {
   _draw_static_stars
-  while (( PARALLAX_ENABLED )); do
-    sleep 0.4
-    _twinkle_few_stars
-  done
 }
 
 parallax_start() {
   (( PARALLAX_ENABLED )) || return
-  if [[ -z "$PARALLAX_PID" ]] || ! kill -0 "$PARALLAX_PID" 2>/dev/null; then
-    parallax_tick &!
-    PARALLAX_PID=$!
-  fi
+  parallax_tick
 }
 
 parallax_stop() {
@@ -2727,7 +2724,8 @@ show_nlp_suggestion() {
     local suggestion="$2"
     local alternatives=("${@:3}")
 
-    printf "\n"
+    # Position at bottom (approx 8 lines up)
+    printf '\e[%d;1H' $((LINES-9))
     printf "  %b╭─────────────────────────────────────────────────────────────╮%b\n" \
         "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
     printf "  %b│%b  %b🤖 NLP ASSISTANT%b                                          %b│%b\n" \
@@ -3973,6 +3971,7 @@ precmd() {
 }
 # Forțează redesenarea barei după fiecare comandă
 _cyber_redraw_bar_precmd() {
+    (( PARALLAX_ENABLED )) && parallax_tick
     (( CYBER_TOPBAR_ENABLED )) && cyber_draw_utility_bar 2>/dev/null
 }
 add-zsh-hook precmd _cyber_redraw_bar_precmd
@@ -4218,3 +4217,4 @@ zle-keymap-select() {
 zle -N zle-keymap-select
 zle-line-finish() { cursor_update_widget; }
 zle -N zle-line-finish
+alias brad='python3 /workspace/brad_tui.py'
