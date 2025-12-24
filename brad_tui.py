@@ -32,6 +32,16 @@ def draw_frame(cols, rows, t):
 
     # fundal (ușor întunecat)
     bg = (10, 12, 14)
+    
+    # Zăpadă - particule care cad
+    num_snowflakes = min(50, W * H // 200)
+    snowflakes = []
+    random.seed(int(t * 10))
+    for i in range(num_snowflakes):
+        x = random.randint(0, W-1)
+        y = int((t * 20 + i * 7) % (H + 20)) - 10
+        size = random.choice([1, 1, 1, 2])  # mostly small flakes
+        snowflakes.append((x, y, size))
 
     # conul (frunzișul)
     for y in range(height):
@@ -54,7 +64,7 @@ def draw_frame(cols, rows, t):
             g = (base[0]*(1-k) + tip[0]*k,
                  base[1]*(1-k) + tip[1]*k,
                  base[2]*(1-k) + tip[2]*k)
-            shade = (g[0](0.3+0.7*ndotl), g[1](0.3+0.7*ndotl), g[2]*(0.3+0.7*ndotl))
+            shade = (g[0]*(0.3+0.7*ndotl), g[1]*(0.3+0.7*ndotl), g[2]*(0.3+0.7*ndotl))
             buf[sy][x] = (int(shade[0]), int(shade[1]), int(shade[2]))
 
     # trunchi
@@ -105,6 +115,20 @@ def draw_frame(cols, rows, t):
                     buf[y][hx] = (min(255,int(br*0.7+col[0]*0.3)),
                                   min(255,int(gc*0.7+col[1]*0.3)),
                                   min(255,int(bc*0.7+col[2]*0.3)))
+
+    # Zăpadă - desenează particulele
+    for sx, sy, size in snowflakes:
+        if 0 <= sy < H and 0 <= sx < W:
+            # Verifică dacă zăpada cade peste brad (nu desena peste brad)
+            dist_from_center = abs(sx - cx)
+            tree_y_at_x = cy - int(height * (1 - dist_from_center / radius)) if dist_from_center < radius else H
+            if sy < tree_y_at_x or dist_from_center > radius:
+                snow_col = (240, 240, 255)
+                buf[sy][sx] = snow_col
+                if size > 1 and sx + 1 < W:
+                    buf[sy][sx+1] = snow_col
+                if sy + 1 < H:
+                    buf[sy+1][sx] = snow_col
 
     # compunere în celule Braille
     out_lines = []

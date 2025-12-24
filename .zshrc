@@ -546,6 +546,69 @@ cyber_box_separator() {
   print -- "╣${CYBER_STYLE[reset]}"
 }
 
+# Gradient border wrapper pentru text (comenzi și răspunsuri)
+cyber_gradient_border() {
+    local text="$1"
+    local type="${2:-command}"  # command sau response
+    local cols=${COLUMNS:-80}
+    
+    # Culori gradient bazate pe tip
+    local color1 color2
+    case "$type" in
+        command)
+            color1="${CYBER_COLORS[cyan]}"
+            color2="${CYBER_COLORS[magenta]}"
+            ;;
+        response)
+            color1="${CYBER_COLORS[green]}"
+            color2="${CYBER_COLORS[cyan]}"
+            ;;
+        *)
+            color1="${CYBER_COLORS[cyan]}"
+            color2="${CYBER_COLORS[blue]}"
+            ;;
+    esac
+    
+    # Calculează lățimea maximă
+    local max_width=$((cols - 4))
+    local lines=("${(@f)text}")
+    local max_line_len=0
+    for line in "${lines[@]}"; do
+        [[ ${#line} -gt $max_line_len ]] && max_line_len=${#line}
+    done
+    (( max_line_len > max_width )) && max_line_len=$max_width
+    local border_width=$((max_line_len + 2))
+    
+    # Top border cu gradient
+    printf "%s╔" "$color1"
+    for ((i=0; i<border_width; i++)); do
+        local ratio=$((i * 100 / border_width))
+        if (( ratio < 50 )); then
+            printf "═"
+        else
+            printf "═"
+        fi
+    done
+    printf "╗%s\n" "${CYBER_STYLE[reset]}"
+    
+    # Text cu border
+    for line in "${lines[@]}"; do
+        local line_len=${#line}
+        local padding=$((border_width - line_len - 2))
+        printf "%s║%s " "$color1" "${CYBER_STYLE[reset]}"
+        printf "%s" "$line"
+        (( padding > 0 )) && printf "%*s" "$padding" ""
+        printf " %s║%s\n" "$color2" "${CYBER_STYLE[reset]}"
+    done
+    
+    # Bottom border cu gradient
+    printf "%s╚" "$color2"
+    for ((i=0; i<border_width; i++)); do
+        printf "═"
+    done
+    printf "╝%s\n" "${CYBER_STYLE[reset]}"
+}
+
 # Get system metrics
 get_cpu_load() {
     local load=$(cat /proc/loadavg 2>/dev/null | cut -d' ' -f1)
@@ -2187,8 +2250,8 @@ cinematic_intro() {
 
     # Show cursor
     printf '\033[?25h'
-# Clear pentru parallax
-    clear
+# NU mai șterge ecranul - lasă output-ul să rămână
+    # clear  # DEZACTIVAT - șterge output-ul
 
     # Mark as shown
     WELCOME_SHOWN=1
@@ -2238,13 +2301,14 @@ parallax_scroll() {
     PARALLAX_BG_OFFSET=$((PARALLAX_BG_OFFSET + ${1:-1} * ${2:-1}))
 }
 
-# Generează și desenează stelele O SINGURĂ DATĂ
+# Generează și desenează stelele O SINGURĂ DATĂ (layer 0 - fundal)
 _draw_static_stars() {
   [[ -t 1 ]] || return
   (( STARS_DRAWN )) && return
 
   local cols=${COLUMNS:-80} lines=${LINES:-24}
-  local num_stars=$(( cols * lines / 35 ))
+  # Mai multe stele pentru efect mai bun
+  local num_stars=$(( cols * lines / 25 ))
   local i h x y brightness char r g b color_type
 
   STAR_POSITIONS=()
@@ -2252,18 +2316,20 @@ _draw_static_stars() {
   printf '\e[s'
 
   for ((i=0; i<num_stars; i++)); do
-    h=$(( (1103515245 * (i * 7919 + 104729) + 12345) & 0x7FFFFFFF ))
+    # Random seed mai bun pentru efect mai aleator
+    h=$(( (1103515245 * (i * 7919 + 104729 + RANDOM) + 12345) & 0x7FFFFFFF ))
     x=$(( (h % (cols - 4)) + 3 ))
-    h=$(( (h * 16807 + 1) & 0x7FFFFFFF ))
+    h=$(( (h * 16807 + RANDOM + 1) & 0x7FFFFFFF ))
     y=$(( (h % (lines - 6)) + 4 ))
 
     # Salvează și tipul de culoare
     color_type=$(( h % 8 ))
     STAR_POSITIONS+=("$x:$y:$color_type")
 
-    brightness=$(( (h * 13) % 100 ))
+    # Brightness mai aleator
+    brightness=$(( (h * 13 + RANDOM) % 100 ))
 
-    # Caracter bazat pe brightness
+    # Caracter bazat pe brightness (mai variat)
     if (( brightness > 85 )); then
       char="✦"
     elif (( brightness > 65 )); then
@@ -2276,7 +2342,7 @@ _draw_static_stars() {
       char="."
     fi
 
-    # CULORI DIFERITE pentru fiecare stea
+    # CULORI DIFERITE pentru fiecare stea (mai saturate)
     case $color_type in
       0) # Cyan
         r=$(( 40 + brightness )); g=$(( 180 + brightness/2 )); b=$(( 220 + brightness/3 )) ;;
@@ -2297,33 +2363,37 @@ _draw_static_stars() {
     esac
 
     (( r > 255 )) && r=255; (( g > 255 )) && g=255; (( b > 255 )) && b=255
-    printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s' "$y" "$x" "$r" "$g" "$b" "$char"
+    # Desenează steaua cu background transparent (nu interferează cu textul)
+    printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s\e[0m' "$y" "$x" "$r" "$g" "$b" "$char"
   done
 
   printf '\e[0m\e[u'
   STARS_DRAWN=1
 }
 
-# Pâlpâit LENT - schimbă doar câteva stele, PĂSTREAZĂ CULOAREA
+# Pâlpâit LENT - schimbă doar câteva stele, PĂSTREAZĂ CULOAREA (mai aleator)
 _twinkle_few_stars() {
   [[ -t 1 ]] || return
   (( ${#STAR_POSITIONS[@]} == 0 )) && return
 
   local total=${#STAR_POSITIONS[@]}
-  local to_twinkle=$(( total / 12 + 1 ))
+  # Mai multe stele pâlpâie pentru efect mai dinamic
+  local to_twinkle=$(( total / 8 + 1 ))
   local i idx pos x y color_type brightness char r g b
 
   printf '\e[s'
 
   for ((i=0; i<to_twinkle; i++)); do
-    idx=$(( RANDOM % total + 1 ))
+    # Random mai bun
+    idx=$(( (RANDOM * 7919 + i) % total + 1 ))
     pos="${STAR_POSITIONS[$idx]}"
     x=${pos%%:*}
     local rest=${pos#*:}
     y=${rest%%:*}
     color_type=${rest##*:}
 
-    brightness=$(( RANDOM % 100 ))
+    # Brightness mai variat
+    brightness=$(( (RANDOM * 13 + i * 7) % 100 ))
 
     # Caracter bazat pe brightness
     if (( brightness > 85 )); then
@@ -2721,13 +2791,22 @@ parse_natural_language() {
     return 1
 }
 
-# NLP suggestion interface
+# NLP suggestion interface (poziționat jos, lângă bara de utilități)
 show_nlp_suggestion() {
     local original="$1"
     local suggestion="$2"
     local alternatives=("${@:3}")
-
-    printf "\n"
+    
+    # Salvează poziția cursorului
+    printf '\e[s'
+    
+    # Mută cursorul jos, lângă bara de utilități (linia LINES-3)
+    local panel_line=$((LINES - 3))
+    printf '\e[%d;1H' "$panel_line"
+    
+    # Șterge linia pentru a nu se suprapune
+    printf '\e[2K'
+    
     printf "  %b╭─────────────────────────────────────────────────────────────╮%b\n" \
         "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
     printf "  %b│%b  %b🤖 NLP ASSISTANT%b                                          %b│%b\n" \
@@ -2753,6 +2832,9 @@ show_nlp_suggestion() {
         "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
     printf "  %b╰─────────────────────────────────────────────────────────────╯%b\n" \
         "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
+    
+    # Restaurează poziția cursorului
+    printf '\e[u'
 
     # Handle user input
     local key
@@ -3971,8 +4053,10 @@ precmd() {
     detect_project
     CYBER_LAST_COMMAND="" CYBER_LAST_COMMAND_TIME=0
 }
-# Forțează redesenarea barei după fiecare comandă
+# Forțează redesenarea barei după fiecare comandă (PERSISTENTĂ)
 _cyber_redraw_bar_precmd() {
+    # Așteaptă puțin pentru a nu interfera cu output-ul comenzii
+    sleep 0.05
     (( CYBER_TOPBAR_ENABLED )) && cyber_draw_utility_bar 2>/dev/null
 }
 add-zsh-hook precmd _cyber_redraw_bar_precmd
@@ -4031,7 +4115,7 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
+if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]]; then
   WELCOME_SHOWN=1
   CYBER_TOPBAR_ENABLED=0
   cinematic_intro
@@ -4181,9 +4265,17 @@ apply_cursor_state() {
     # Set cursor shape
     printf '%b' "${CURSOR_STATES[$state]}"
 
-    # Set cursor color (Kitty/compatible terminals)
-    if [[ "$TERM" == *"kitty"* ]]; then
+    # Set cursor color (Kitty/compatible terminals) - FORȚAT PENTRU KITTY
+    if [[ "$TERM" == *"kitty"* ]] || [[ -n "$KITTY_WINDOW_ID" ]]; then
         printf '%b' "${CURSOR_COLORS[$state]}"
+        # Forțează aplicarea culorii
+        printf '\033]12;#00ffff\007'  # Default cyan pentru normal
+        case "$state" in
+            sudo) printf '\033]12;#ff00ff\007' ;;
+            danger) printf '\033]12;#ff0055\007' ;;
+            busy) printf '\033]12;#ffff00\007' ;;
+            *) printf '\033]12;#00ffff\007' ;;
+        esac
     fi
 }
 
@@ -4200,21 +4292,28 @@ cursor_pulse() {
     done
 }
 
-# ZLE widget for cursor update
+# ZLE widget for cursor update (nu interferează cu navigarea)
 cursor_update_widget() {
     update_cursor_state
-    zle -M ""
+    # Nu mai șterge mesajele - interferează cu navigarea
+    # zle -M ""
 }
 
 # Register the widget
 zle -N cursor_update_widget
 zle-line-init() {
     cursor_update_widget 2>/dev/null
+    # Ascunde bara când începi să scrii
+    (( CYBER_TOPBAR_ENABLED )) && cyber_clear_utility_bar 2>/dev/null
 }
 zle -N zle-line-init
 zle-keymap-select() {
     cursor_update_widget 2>/dev/null
 }
 zle -N zle-keymap-select
-zle-line-finish() { cursor_update_widget; }
+zle-line-finish() { 
+    cursor_update_widget
+    # Arată bara după ce termini de scris (când comanda se execută)
+    (( CYBER_TOPBAR_ENABLED )) && cyber_draw_utility_bar 2>/dev/null
+}
 zle -N zle-line-finish
