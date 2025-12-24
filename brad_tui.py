@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -- coding: utf-8 --
+# -*- coding: utf-8 -*-
 import os, sys, time, math, random, signal
 import shutil
 
@@ -15,96 +15,171 @@ def clamp(x, a, b): return a if x < a else b if x > b else x
 def rgb(r,g,b): return f"\x1b[38;2;{int(r)};{int(g)};{int(b)}m"
 RESET = "\x1b[0m"
 
+# Snow particles
+snow_particles = []
+
+def init_snow(W, H, count=50):
+    global snow_particles
+    snow_particles = []
+    for _ in range(count):
+        snow_particles.append({
+            'x': random.uniform(0, W),
+            'y': random.uniform(0, H),
+            'speed': random.uniform(0.2, 0.8),
+            'sway': random.uniform(0, 2*math.pi)
+        })
+
+def update_snow(W, H, dt):
+    global snow_particles
+    if not snow_particles:
+        init_snow(W, H)
+    
+    for p in snow_particles:
+        p['y'] += p['speed']
+        p['x'] += math.sin(p['sway']) * 0.3
+        p['sway'] += 0.1
+        if p['y'] >= H:
+            p['y'] = 0
+            p['x'] = random.uniform(0, W)
+
 def draw_frame(cols, rows, t):
     # canvas subpixel: width = cols*2, height = rows*4
     W, H = cols*2, rows*4
     # centru și raze pentru con (arbore) în spațiul ecranului
-    cx, cy = W//2, int(H*0.46)
+    cx, cy = W//2, int(H*0.75)  # Moved tree down a bit
     # parametri „3D” simulați
-    height = int(H*0.60)
-    radius = int(W*0.30)
+    height = int(H*0.65)
+    radius = int(W*0.35)
     trunk_h = int(H*0.10)
 
     # lumină direcțională în rotire
-    lx = math.cos(t*0.9); ly = -0.2; lz = math.sin(t*0.6)
-    # buffer subpixeli: (r,g,b, on/off)
+    lx = math.cos(t*0.9); ly = -0.5; lz = math.sin(t*0.6)
+    # buffer subpixeli: (r,g,b)
+    # Background gradient
     buf = [[None]*W for _ in range(H)]
+    
+    # Update snow
+    update_snow(W, H, 0.1)
 
-    # fundal (ușor întunecat)
-    bg = (10, 12, 14)
+    # Draw background snow
+    for p in snow_particles:
+        px, py = int(p['x']), int(p['y'])
+        if 0 <= px < W and 0 <= py < H:
+             # Depth effect: dimmer if "far" (slower)
+             b = int(150 + p['speed']*100)
+             buf[py][px] = (b, b, b+20)
 
-    # conul (frunzișul)
-    for y in range(height):
-        # lățimea conului la înălțimea y
-        r = int(radius * (1 - y/height))
-        sy = cy - y
-        if sy < 0 or sy >= H: continue
-        for x in range(cx - r, cx + r + 1):
-            if x < 0 or x >= W: continue
-            # normal aproximat pentru shading (pe con)
-            nx = (x - cx) / max(r,1)
-            ny = 0.6
-            nz = (height - y) / height
-            # lambert
-            ndotl = clamp(nx*lx + ny*ly + nz*lz, 0, 1)
-            # culoare brad cu gradient
-            base = (20, 120, 40)
-            tip  = (60, 200, 80)
-            k = y / height
-            g = (base[0]*(1-k) + tip[0]*k,
-                 base[1]*(1-k) + tip[1]*k,
-                 base[2]*(1-k) + tip[2]*k)
-            shade = (g[0](0.3+0.7*ndotl), g[1](0.3+0.7*ndotl), g[2]*(0.3+0.7*ndotl))
-            buf[sy][x] = (int(shade[0]), int(shade[1]), int(shade[2]))
+    # conul (frunzișul) - Multiple layers for 3D effect
+    layers = 5
+    layer_height = height / layers
+    
+    for i in range(layers):
+        layer_y_start = cy - height + i * (height // layers)
+        layer_h = int(height // layers * 1.5) # Overlap
+        current_radius = int(radius * (i+1) / layers)
+        
+        # Draw cone segment
+        for y in range(layer_h):
+            py = int(layer_y_start + y)
+            if py < 0 or py >= H: continue
+            
+            rel_y = y / layer_h
+            r = int(current_radius * (0.2 + 0.8 * rel_y)) # Cone shape
+            
+            sy = py
+            for x in range(cx - r, cx + r + 1):
+                if x < 0 or x >= W: continue
+                
+                # Check circularity for 3D feel
+                dx = (x - cx)
+                if dx*dx + (y-layer_h)**2 * 0.2 > r*r: continue # Fake perspective
+
+                # Normal map logic
+                nx = dx / r
+                ny = 0.3
+                nz = math.sqrt(max(0, 1 - nx*nx - ny*ny))
+                
+                # Lighting
+                ndotl = clamp(nx*lx + ny*ly + nz*lz, 0, 1)
+                
+                # Base Color
+                base = (10, 80 + i*10, 20)
+                tip  = (40, 160 + i*15, 60)
+                
+                # Gradient
+                k = 1 - rel_y
+                col_r = base[0]*(1-k) + tip[0]*k
+                col_g = base[1]*(1-k) + tip[1]*k
+                col_b = base[2]*(1-k) + tip[2]*k
+                
+                # Shadow from layer above
+                shadow = 1.0
+                if i > 0 and y < layer_h * 0.3:
+                    shadow = 0.6 + 0.4 * (y / (layer_h*0.3))
+
+                # Final shade
+                light = 0.3 + 0.7 * ndotl
+                
+                final_r = int(col_r * light * shadow)
+                final_g = int(col_g * light * shadow)
+                final_b = int(col_b * light * shadow)
+                
+                buf[sy][x] = (final_r, final_g, final_b)
 
     # trunchi
-    tw = max(2, W//30)
+    tw = max(3, W//25)
     for y in range(trunk_h):
-        sy = cy + y + 2
+        sy = cy + y
         if sy < 0 or sy >= H: continue
         for x in range(cx - tw, cx + tw):
             if 0 <= x < W:
-                ndotl = clamp(0.3 + 0.7*math.cos((x-cx)*0.5), 0, 1)
-                brown = (110*ndotl, 70*ndotl, 40*ndotl)
+                # Cylindrical shading
+                xn = (x - cx) / tw
+                ndotl = clamp(0.3 + 0.7*math.cos(xn*1.5 + t*0.2), 0, 1)
+                brown = (100*ndotl, 60*ndotl, 30*ndotl)
                 buf[sy][x] = (int(brown[0]), int(brown[1]), int(brown[2]))
 
     # stea sus (pulsează)
-    sx, sy = cx, cy - height - 2
-    for dy in range(-1,3):
-        for dx in range(-2,3):
+    sx, sy = cx, cy - height - 3
+    for dy in range(-2,3):
+        for dx in range(-3,4):
             x, y = sx+dx, sy+dy
             if 0 <= x < W and 0 <= y < H:
-                p = 0.5 + 0.5*math.sin(t*3.0 + (dx*dx+dy*dy))
-                col = (240, 220, 80 + int(60*p))
-                buf[y][x] = col
+                dist = dx*dx + dy*dy
+                if dist < 6:
+                    p = 0.5 + 0.5*math.sin(t*4.0)
+                    col = (255, 220, 50 + int(50*p))
+                    # Glow
+                    buf[y][x] = col
 
     # globuri (poziții fixe + flicker)
     random.seed(42)
     bulbs = []
-    for band in range(8, height-6, max(3, height//14)):
-        r = int(radius * (1 - band/height))
-        for i in range(6):
-            ang = (i/6)*math.pi*2 + band*0.23
-            x = int(cx + r*math.cos(ang))
-            y = cy - band
-            bulbs.append((x,y))
+    for band in range(10, height-5, max(5, height//10)):
+        r = int(radius * (1 - band/height) * 0.8)
+        for i in range(5):
+            ang = (i/5)*math.pi*2 + band*0.5
+            x = int(cx + r*math.cos(ang + t*0.5)) # Rotate bulbs with tree? No, just static positions on cone
+            # 3D rotation effect for bulbs
+            rot_ang = ang + t * 0.5
+            z = r * math.sin(rot_ang)
+            if z < 0: continue # Behind the tree
+
+            x_2d = int(cx + r * math.cos(rot_ang))
+            y_2d = cy - band + int(z * 0.1) # Tilt
+            
+            bulbs.append((x_2d, y_2d))
+
     for (x,y) in bulbs:
         if 0 <= x < W and 0 <= y < H:
-            hue = (math.sin(x*0.2 + y*0.3) * 0.5 + 0.5)
+            hue = (math.sin(x*0.1 + y*0.1) * 0.5 + 0.5)
             # palpaire
-            flick = 0.7 + 0.3*math.sin(t*7.0 + x*0.7 + y*0.5)
-            r = int(200 + 55*hue)
-            g = int(80 + 140*(1-hue))
-            b = int(110 + 110*(1-abs(0.5-hue)*2))
+            flick = 0.8 + 0.2*math.sin(t*10.0 + x)
+            r = int(220 + 35*hue)
+            g = int(50 + 50*(1-hue))
+            b = int(50 + 200*hue)
             col = (clamp(r*flick,0,255), clamp(g*flick,0,255), clamp(b*flick,0,255))
             buf[y][x] = (int(col[0]), int(col[1]), int(col[2]))
-            # mic halo
-            for hx in (x-1, x+1):
-                if 0 <= hx < W and 0 <= y < H and buf[y][hx] is not None:
-                    br,gc,bc = buf[y][hx]
-                    buf[y][hx] = (min(255,int(br*0.7+col[0]*0.3)),
-                                  min(255,int(gc*0.7+col[1]*0.3)),
-                                  min(255,int(bc*0.7+col[2]*0.3)))
 
     # compunere în celule Braille
     out_lines = []
@@ -165,7 +240,7 @@ def main():
             sys.stdout.write(frame)
             sys.stdout.write(RESET)
             sys.stdout.flush()
-            time.sleep(0.07)
+            time.sleep(0.05)
     except KeyboardInterrupt:
         pass
     finally:

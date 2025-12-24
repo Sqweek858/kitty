@@ -2366,33 +2366,31 @@ _twinkle_few_stars() {
 }
 
 parallax_tick() {
+  # No background loop. Just draw once if needed.
   _draw_static_stars
-  while (( PARALLAX_ENABLED )); do
-    sleep 0.4
-    _twinkle_few_stars
-  done
 }
 
 parallax_start() {
   (( PARALLAX_ENABLED )) || return
-  if [[ -z "$PARALLAX_PID" ]] || ! kill -0 "$PARALLAX_PID" 2>/dev/null; then
-    parallax_tick &!
-    PARALLAX_PID=$!
+  # Use C++ renderer if available for speed and no flicker
+  if [[ -x "/workspace/parallax_renderer" ]]; then
+     /workspace/parallax_renderer
+  else
+     _draw_static_stars
   fi
 }
 
 parallax_stop() {
-  [[ -n "$PARALLAX_PID" ]] && kill "$PARALLAX_PID" 2>/dev/null
-  PARALLAX_PID=""
+  # Nothing to stop as we don't run background loop anymore
+  :
 }
 
 parallax_redraw_now() {
-  STARS_DRAWN=0
-  _draw_static_stars
+  parallax_start
 }
 
 # Funcții de compatibilitate
-generate_parallax_bg() { _draw_static_stars; }
+generate_parallax_bg() { parallax_start; }
 parallax_draw_fullscreen_skip() { :; }
 cyber_draw_parallax_header() { :; }
 
@@ -2402,7 +2400,8 @@ cyber_toggle_parallax_widget() {
     parallax_start
     zle -M "✦ Stars: ON"
   else
-    parallax_stop
+    # Clear stars? We'd need to clear screen or just wait for scroll
+    clear
     zle -M "✦ Stars: OFF"
   fi
 }
@@ -3929,6 +3928,11 @@ ERROR_MSGS=("'%s' nu existÄ. Nice try." "'%s' a fost cÄutat. Nu a fost gÄ
 command_not_found_handler() {
     local cmd="$1"
     local msg="${ERROR_MSGS[$((RANDOM % ${#ERROR_MSGS[@]} + 1))]}"
+    
+    # Print closer to bottom to avoid messing up scroll, but this is tricky if we are already at bottom.
+    # User requested "jos, lângă bara de utilități".
+    # We will try to print it cleanly.
+    
     printf "\n %b╭────────── ⚠️  ────────── COMMAND NOT FOUND ─────────────────────────────────────────╮%b\n" "${CYBER_COLORS[red]}" "${CYBER_STYLE[reset]}"
     printf "  %b│%b  $msg\n" "${CYBER_COLORS[red]}" "${CYBER_STYLE[reset]}" "$cmd"
     printf "  %b╰───────────────────────────────────────────────────────────────────╯%b\n" "${CYBER_COLORS[red]}" "${CYBER_STYLE[reset]}"
@@ -3943,6 +3947,9 @@ command_not_found_handler() {
 
 # HOOKS
 preexec() {
+    # Hide utility bar during command execution to avoid interference
+    typeset -f cyber_clear_utility_bar >/dev/null 2>&1 && cyber_clear_utility_bar
+
     typeset -f cyber_preexec_capture_stderr >/dev/null 2>&1 && cyber_preexec_capture_stderr
     typeset -f cyber_disable_mouse >/dev/null 2>&1 && cyber_disable_mouse
     CYBER_LAST_COMMAND="$1"
@@ -4218,3 +4225,19 @@ zle-keymap-select() {
 zle -N zle-keymap-select
 zle-line-finish() { cursor_update_widget; }
 zle -N zle-line-finish
+
+# FIX KEYBINDINGS (Ensuring these override any plugin defaults)
+bindkey -e
+bindkey '^[[A' up-line-or-history
+bindkey '^[[B' down-line-or-history
+bindkey '^[[C' forward-char
+bindkey '^[[D' backward-char
+bindkey '^[[1;5C' forward-word
+bindkey '^[[1;5D' backward-word
+bindkey '^H' backward-delete-char
+bindkey '^?' backward-delete-char
+bindkey '^[[3~' delete-char
+bindkey '^[[H' beginning-of-line
+bindkey '^[[F' end-of-line
+bindkey '^[[1~' beginning-of-line
+bindkey '^[[4~' end-of-line
