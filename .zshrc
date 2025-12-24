@@ -570,17 +570,19 @@ typeset -g CYBER_STDERR_LOG="${XDG_CACHE_HOME:-$HOME/.cache}/cyberpunk_stderr.lo
 typeset -gi CYBER_STDERR_FD=-1
 
 typeset -gi CYBER_TOPBAR_ENABLED=${CYBER_TOPBAR_ENABLED:-1}
-typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-1}
+typeset -gi CYBER_TOPBAR_VISIBLE=${CYBER_TOPBAR_VISIBLE:-1}
+typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-0}
 
 cyber_topbar_apply_scroll_region() {
   [[ -t 1 ]] || return
-  # Nu mai manipulăm scroll region - cauzează probleme
-  return 0
+  # Setăm scroll region pentru bara de sus
+  local lines="${LINES:-24}"
+  printf '\e[2;%dr' "$lines"
 }
 
 cyber_topbar_reset_scroll_region() {
   [[ -t 1 ]] || return
-  # printf '\e[r'              # reset full scroll region
+  printf '\e[r'              # reset full scroll region
 }
 cyber_enable_mouse()  { [[ -t 1 ]] || return; printf '\e[?1000h\e[?1006h'; }
 cyber_disable_mouse() { [[ -t 1 ]] || return; printf '\e[?1000l\e[?1006l'; }
@@ -608,6 +610,7 @@ cyber_draw_parallax_header() {
 cyber_draw_utility_bar() {
   [[ -t 1 ]] || return
   (( CYBER_TOPBAR_ENABLED )) || { cyber_clear_utility_bar; return; }
+  CYBER_TOPBAR_VISIBLE=1
 
   local cols=${COLUMNS:-80}
   (( cols < 50 )) && return
@@ -698,6 +701,7 @@ cyber_draw_utility_bar() {
 
 cyber_toggle_topbar_widget() {
   (( CYBER_TOPBAR_ENABLED = !CYBER_TOPBAR_ENABLED ))
+  (( CYBER_TOPBAR_VISIBLE = CYBER_TOPBAR_ENABLED ))
   if (( CYBER_TOPBAR_ENABLED )); then
     cyber_topbar_apply_scroll_region
     cyber_draw_utility_bar
@@ -888,13 +892,13 @@ cyber_precmd_restore_stderr_doctor_and_bar() {
     fi
 
     if (( exit_code != 0 )); then
-        show_error "Exit $exit_code"
-        show_command_doctor "$exit_code" "$CYBER_LAST_CMD" "$stderr_out"
-    else
-        if (( dur >= CYBER_VISUAL_MIN_SECONDS )); then
-            show_success "OK (${dur}s)"
+        # Nu mai afișăm eroare pentru fiecare comandă
+        # Doar doctor dacă este activat manual
+        if (( CYBER_DOCTOR_AUTO )); then
+            show_command_doctor "$exit_code" "$CYBER_LAST_CMD" "$stderr_out"
         fi
     fi
+    # Eliminăm show_success complet - nu mai afișăm nimic la succes
 
     CYBER_LAST_CMD=""
 
@@ -908,8 +912,8 @@ cyber_precmd_restore_stderr_doctor_and_bar() {
     fi
 }
 
-# add-zsh-hook preexec cyber_preexec_capture_stderr
-# add-zsh-hook precmd  cyber_precmd_restore_stderr_doctor_and_bar
+add-zsh-hook preexec cyber_preexec_capture_stderr
+add-zsh-hook precmd  cyber_precmd_restore_stderr_doctor_and_bar
 
 alias grep='grep --color=auto'
 alias fgrep='fgrep --color=auto'
@@ -3998,6 +4002,12 @@ bindkey '^H' backward-kill-word
 bindkey '^R' history-incremental-search-backward
 bindkey '^ ' file_explorer_widget
 bindkey '^X^C' toggle_clipboard_bar
+bindkey '^[[1~' beginning-of-line
+bindkey '^[[4~' end-of-line
+bindkey '^[OC' forward-char
+bindkey '^[OD' backward-char
+bindkey '^[OA' up-line-or-history
+bindkey '^[OB' down-line-or-history
 
 
 # FZF
@@ -4031,7 +4041,7 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
+if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -z "$TMUX" ]]; then
   WELCOME_SHOWN=1
   CYBER_TOPBAR_ENABLED=0
   cinematic_intro
@@ -4182,7 +4192,7 @@ apply_cursor_state() {
     printf '%b' "${CURSOR_STATES[$state]}"
 
     # Set cursor color (Kitty/compatible terminals)
-    if [[ "$TERM" == *"kitty"* ]]; then
+    if [[ "$TERM" == *"kitty"* ]] || [[ -n "$KITTY_WINDOW_ID" ]]; then
         printf '%b' "${CURSOR_COLORS[$state]}"
     fi
 }
