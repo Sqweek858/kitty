@@ -1,0 +1,39 @@
+# Cyberpunk Terminal - Requirements
+#
+# This project uses ONLY Python standard library!
+# No external dependencies are required.
+#
+# Minimum Python version: 3.7+
+# Recommended Python version: 3.9+
+#
+# Standard library modules used:
+# - os, sys, time
+# - math, random
+# - signal, termios, tty, select, fcntl, struct
+# - subprocess, threading, queue
+# - shutil, shlex
+# - json, pathlib
+# - dataclasses, enum
+# - typing
+# - collections (deque)
+# - functools
+# - atexit
+#
+# Terminal requirements:
+# - Terminal with true color support (24-bit RGB)
+# - Unicode support (UTF-8)
+# - Minimum size: 80x24
+# - Recommended size: 120x40 or larger
+#
+# Tested on:
+# - Linux (Ubuntu, Debian, Arch, Fedora)
+# - macOS (Terminal.app, iTerm2)
+# - Windows (WSL2, Windows Terminal)
+#
+# For best experience:
+# - Use a modern terminal emulator
+# - Enable true color support
+# - Use a monospace font with good Unicode coverage
+# - Recommended fonts: Fira Code, JetBrains Mono, Cascadia Code
+
+# No pip packages needed!
