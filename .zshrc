@@ -2068,14 +2068,17 @@ scan_line_effect() {
     done
 }
 
-# Full cinematic intro
+# Full cinematic intro - funcționează și în tmux
 cinematic_intro() {
     # Check if intro already shown or should be skipped
     [[ $WELCOME_SHOWN -eq 1 ]] && return
     [[ $SKIP_INTRO -eq 1 ]] && return
 
-    # Clear screen
-    clear
+    # Clear screen (doar dacă nu suntem în tmux sau dacă e prima dată)
+    if [[ -z "$TMUX" ]] || [[ -z "${_CYBER_INTRO_DONE:-}" ]]; then
+        clear
+        export _CYBER_INTRO_DONE=1
+    fi
 
     # Hide cursor
     printf '\033[?25l'
@@ -2238,32 +2241,39 @@ parallax_scroll() {
     PARALLAX_BG_OFFSET=$((PARALLAX_BG_OFFSET + ${1:-1} * ${2:-1}))
 }
 
-# Generează și desenează stelele O SINGURĂ DATĂ
+# Generează și desenează stelele O SINGURĂ DATĂ - LAYER 0 (fundal, nu interferează cu textul)
 _draw_static_stars() {
   [[ -t 1 ]] || return
   (( STARS_DRAWN )) && return
 
   local cols=${COLUMNS:-80} lines=${LINES:-24}
-  local num_stars=$(( cols * lines / 35 ))
+  # Mai puține stele pentru a nu interfera cu textul
+  local num_stars=$(( cols * lines / 50 ))
   local i h x y brightness char r g b color_type
 
   STAR_POSITIONS=()
 
+  # Salvează poziția cursorului
   printf '\e[s'
 
+  # Folosește seed random pentru efect mai bun
+  local seed=$(( $(date +%s) % 10000 ))
+  
   for ((i=0; i<num_stars; i++)); do
-    h=$(( (1103515245 * (i * 7919 + 104729) + 12345) & 0x7FFFFFFF ))
+    # Random mai bun cu seed
+    h=$(( (1103515245 * (i * 7919 + seed + 104729) + 12345) & 0x7FFFFFFF ))
     x=$(( (h % (cols - 4)) + 3 ))
     h=$(( (h * 16807 + 1) & 0x7FFFFFFF ))
     y=$(( (h % (lines - 6)) + 4 ))
 
-    # Salvează și tipul de culoare
-    color_type=$(( h % 8 ))
+    # Salvează și tipul de culoare (random mai bun)
+    color_type=$(( (h * 17 + i) % 8 ))
     STAR_POSITIONS+=("$x:$y:$color_type")
 
-    brightness=$(( (h * 13) % 100 ))
+    # Brightness random mai variat
+    brightness=$(( (h * 13 + i * 7) % 100 ))
 
-    # Caracter bazat pe brightness
+    # Caracter bazat pe brightness - mai variat
     if (( brightness > 85 )); then
       char="✦"
     elif (( brightness > 65 )); then
@@ -2276,7 +2286,7 @@ _draw_static_stars() {
       char="."
     fi
 
-    # CULORI DIFERITE pentru fiecare stea
+    # CULORI DIFERITE pentru fiecare stea - mai saturate
     case $color_type in
       0) # Cyan
         r=$(( 40 + brightness )); g=$(( 180 + brightness/2 )); b=$(( 220 + brightness/3 )) ;;
@@ -2297,14 +2307,19 @@ _draw_static_stars() {
     esac
 
     (( r > 255 )) && r=255; (( g > 255 )) && g=255; (( b > 255 )) && b=255
-    printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s' "$y" "$x" "$r" "$g" "$b" "$char"
+    
+    # Desenează steaua DOAR dacă poziția e validă și NU interferează cu zona de text activă
+    # Evită primele 2 rânduri (unde poate fi prompt-ul) și ultimul rând (bara de utilități)
+    if (( y > 2 && y < lines - 1 )); then
+      printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s' "$y" "$x" "$r" "$g" "$b" "$char"
+    fi
   done
 
   printf '\e[0m\e[u'
   STARS_DRAWN=1
 }
 
-# Pâlpâit LENT - schimbă doar câteva stele, PĂSTREAZĂ CULOAREA
+# Pâlpâit LENT - schimbă doar câteva stele, PĂSTREAZĂ CULOAREA - Random mai bun
 _twinkle_few_stars() {
   [[ -t 1 ]] || return
   (( ${#STAR_POSITIONS[@]} == 0 )) && return
@@ -2312,18 +2327,24 @@ _twinkle_few_stars() {
   local total=${#STAR_POSITIONS[@]}
   local to_twinkle=$(( total / 12 + 1 ))
   local i idx pos x y color_type brightness char r g b
+  local lines=${LINES:-24}
 
   printf '\e[s'
 
+  # Folosește seed random pentru efect mai variat
+  local seed=$(( $(date +%s%N) % 1000000 ))
+
   for ((i=0; i<to_twinkle; i++)); do
-    idx=$(( RANDOM % total + 1 ))
+    # Random mai bun
+    idx=$(( (seed * (i + 1) * 7919 + 104729) % total + 1 ))
     pos="${STAR_POSITIONS[$idx]}"
     x=${pos%%:*}
     local rest=${pos#*:}
     y=${rest%%:*}
     color_type=${rest##*:}
 
-    brightness=$(( RANDOM % 100 ))
+    # Brightness random mai variat
+    brightness=$(( (seed * (i + 1) * 13 + i * 7) % 100 ))
 
     # Caracter bazat pe brightness
     if (( brightness > 85 )); then
@@ -2359,7 +2380,11 @@ _twinkle_few_stars() {
     esac
 
     (( r > 255 )) && r=255; (( g > 255 )) && g=255; (( b > 255 )) && b=255
-    printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s' "$y" "$x" "$r" "$g" "$b" "$char"
+    
+    # Desenează DOAR dacă nu interferează cu zona de text
+    if (( y > 2 && y < lines - 1 )); then
+      printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s' "$y" "$x" "$r" "$g" "$b" "$char"
+    fi
   done
 
   printf '\e[0m\e[u'
@@ -2721,63 +2746,42 @@ parse_natural_language() {
     return 1
 }
 
-# NLP suggestion interface
+# NLP suggestion interface - AFIȘAT JOS LÂNGĂ BARA DE UTILITĂȚI
 show_nlp_suggestion() {
     local original="$1"
     local suggestion="$2"
     local alternatives=("${@:3}")
+    
+    [[ -t 1 ]] || return
+    
+    # Salvează poziția cursorului
+    printf '\e[s'
+    
+    # Calculează poziția jos (pe penultimul rând, deasupra barei de utilități)
+    local lines=${LINES:-24}
+    local nlp_line=$((lines - 1))
+    
+    # Mută cursorul jos și șterge linia
+    printf '\e[%d;1H\e[2K' "$nlp_line"
+    
+    # Desenează panoul compact jos
+    local cols=${COLUMNS:-80}
+    local suggestion_short="${suggestion:0:$((cols-30))}"
+    [[ ${#suggestion} -gt $((cols-30)) ]] && suggestion_short="${suggestion_short}..."
+    
+    printf '%b╭─ 🤖 NLP: %b%s%b ── [Enter]Accept [Tab]Alt [Esc]Cancel ─╮%b' \
+        "${CYBER_COLORS[cyan]}" \
+        "${CYBER_COLORS[green]}${CYBER_STYLE[bold]}" \
+        "$suggestion_short" \
+        "${CYBER_STYLE[reset]}${CYBER_COLORS[cyan]}" \
+        "${CYBER_STYLE[reset]}"
+    
+    # Restaurează poziția cursorului
+    printf '\e[u'
 
-    printf "\n"
-    printf "  %b╭─────────────────────────────────────────────────────────────╮%b\n" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-    printf "  %b│%b  %b🤖 NLP ASSISTANT%b                                          %b│%b\n" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[magenta]}${CYBER_STYLE[bold]}" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-    printf "  %b├─────────────────────────────────────────────────────────────┤%b\n" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-    printf "  %b│%b  Ai vrut să spui:                                          %b│%b\n" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-    printf "  %b│%b    %b%s%b                                     %b│%b\n" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[green]}${CYBER_STYLE[bold]}" "$suggestion" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-    printf "  %b├─────────────────────────────────────────────────────────────┤%b\n" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-    printf "  %b│%b  %b[Enter]%b Da  •  %b[Tab]%b Vezi alternative  •  %b[Esc]%b Nu       %b│%b\n" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-    printf "  %b╰─────────────────────────────────────────────────────────────╯%b\n" \
-        "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-
-    # Handle user input
-    local key
-    read -sk1 key
-
-    case "$key" in
-        $'\n')  # Enter - accept suggestion
-            BUFFER="$suggestion"
-            zle accept-line
-            return 0
-            ;;
-        $'\t')  # Tab - show alternatives
-            if [[ ${#alternatives[@]} -gt 0 ]]; then
-                printf "\n  %b Alternative:%b\n" "${CYBER_COLORS[cyan]}" "${CYBER_STYLE[reset]}"
-                local i=1
-                for alt in "${alternatives[@]}"; do
-                    printf "    %b%d)%b %s\n" "${CYBER_COLORS[yellow]}" "$i" "${CYBER_STYLE[reset]}" "$alt"
-                    ((i++))
-                done
-            fi
-            ;;
-        $'\e')  # Escape - cancel
-            return 1
-            ;;
-    esac
+    # Handle user input (non-blocking pentru a nu întrerupe scrierea)
+    # Input-ul se va procesa în widget-ul de accept-line
+    return 0
 }
 
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -3288,6 +3292,7 @@ show_command_doctor() {
     local exit_code=$1 command="$2" error_output="$3"
 
     (( CYBER_DOCTOR_ENABLED == 1 )) || return
+    (( CYBER_DOCTOR_AUTO == 1 )) || return  # Doar dacă e activat
     [[ $exit_code -eq 0 ]] && return
     [[ -z "$error_output" ]] && return
 
@@ -3314,6 +3319,7 @@ show_command_doctor() {
         err_tail=("${(@f)$(printf '%s\n' "$error_output")}")
     fi
 
+    # IMPORTANT: NU șterge output-ul existent, doar adaugă doctor-ul
     printf "\n  %b╭─ 🩺 COMMAND DOCTOR ─────────────────────────────────────────╮%b\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}"
     printf "  %b│%b Exit code: %b%d%b   Tip: %b%s%b\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}" "${CYBER_COLORS[red]}" "$exit_code" "${CYBER_STYLE[reset]}" "${CYBER_COLORS[cyan]}" "$error_type" "${CYBER_STYLE[reset]}"
     printf "  %b├───────────────────────────────────────────────────────────────┤%b\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}"
@@ -3333,6 +3339,9 @@ show_command_doctor() {
     done
 
     printf "  %b╰───────────────────────────────────────────────────────────────╯%b\n" "${CYBER_COLORS[yellow]}" "${CYBER_STYLE[reset]}"
+    
+    # FORȚEază flush pentru a asigura că output-ul apare
+    [[ -t 1 ]] && printf '\e[0m' && exec >&1
 }
 
 # FEATURE 9: CLIPBOARD BAR
@@ -3948,6 +3957,8 @@ preexec() {
     CYBER_LAST_COMMAND="$1"
     CYBER_LAST_COMMAND_TIME=$EPOCHSECONDS
     CYBER_TERMINAL_BUSY=1
+    # Ascunde bara DOAR când începe o comandă (nu o șterge complet)
+    (( CYBER_TOPBAR_ENABLED )) && cyber_clear_utility_bar 2>/dev/null
     update_activity
     [[ $CYBER_RECORDING_MACRO -eq 1 ]] && macro_add_command "$1"
 }
@@ -3958,7 +3969,7 @@ precmd() {
     CYBER_LAST_EXIT_CODE=$last_exit
     local dur=0
     [[ -n "$CYBER_LAST_COMMAND_TIME" ]] && dur=$((EPOCHSECONDS - CYBER_LAST_COMMAND_TIME))
-    CYBER_TERMINAL_BUSY=0
+    CYBER_TERMINAL_BUSY=0  # IMPORTANT: Setăm BUSY=0 ÎNAINTE de a desena bara
 
     [[ -n "$CYBER_LAST_COMMAND" ]] && {
         update_command_frequency "$CYBER_LAST_COMMAND"
@@ -3970,34 +3981,73 @@ precmd() {
 
     detect_project
     CYBER_LAST_COMMAND="" CYBER_LAST_COMMAND_TIME=0
+    
+    # Bara se desenează automat prin hook-ul _cyber_redraw_bar_precmd
+    # care verifică CYBER_TERMINAL_BUSY=0
 }
-# Forțează redesenarea barei după fiecare comandă
+# Forțează redesenarea barei după fiecare comandă - PERSISTENTĂ
 _cyber_redraw_bar_precmd() {
-    (( CYBER_TOPBAR_ENABLED )) && cyber_draw_utility_bar 2>/dev/null
+    # Desenează bara DOAR când terminalul NU e busy (după ce s-a terminat comanda)
+    if (( CYBER_TOPBAR_ENABLED )) && (( CYBER_TERMINAL_BUSY == 0 )); then
+        cyber_draw_utility_bar 2>/dev/null
+    fi
 }
 add-zsh-hook precmd _cyber_redraw_bar_precmd
 
-# KEY BINDINGS
+# Ascunde bara DOAR când începe o comandă (în preexec)
+_cyber_hide_bar_preexec() {
+    # Nu șterge bara, doar o marchează ca busy
+    # Bara va reapărea automat în precmd când CYBER_TERMINAL_BUSY devine 0
+}
+add-zsh-hook preexec _cyber_hide_bar_preexec
+
+# KEY BINDINGS - REPARATE ȘI FORȚATE
+# Setează modul emacs (nu vi)
 bindkey -e
-bindkey '^[[C' forward-char        # Săgeată dreapta
-bindkey '^[[D' backward-char       # Săgeată stânga
-bindkey '^A' beginning-of-line
-bindkey '^E' end-of-line
-bindkey '^B' backward-char
-bindkey '^F' forward-char
-bindkey '^P' up-line-or-history
-bindkey '^N' down-line-or-history
-bindkey '^[[A' history-substring-search-up 2>/dev/null
-bindkey '^[[B' history-substring-search-down 2>/dev/null
-bindkey '^[[H' beginning-of-line
-bindkey '^[[F' end-of-line
-bindkey '^[[3~' delete-char
-bindkey '^[[1;5C' forward-word
-bindkey '^[[1;5D' backward-word
-bindkey '^H' backward-kill-word
-bindkey '^R' history-incremental-search-backward
-bindkey '^ ' file_explorer_widget
-bindkey '^X^C' toggle_clipboard_bar
+
+# Asigură că terminalul permite mișcarea cursorului
+[[ -t 1 ]] && printf '\e[?1h'  # Enable cursor keys
+
+# Keybinds pentru mișcare cursor - FORȚATE
+bindkey '^[[C' forward-char 2>/dev/null        # Săgeată dreapta
+bindkey '^[[D' backward-char 2>/dev/null        # Săgeată stânga
+bindkey '^[[A' up-line-or-history 2>/dev/null    # Săgeată sus
+bindkey '^[[B' down-line-or-history 2>/dev/null   # Săgeată jos
+
+# Keybinds standard
+bindkey '^A' beginning-of-line 2>/dev/null
+bindkey '^E' end-of-line 2>/dev/null
+bindkey '^B' backward-char 2>/dev/null
+bindkey '^F' forward-char 2>/dev/null
+bindkey '^P' up-line-or-history 2>/dev/null
+bindkey '^N' down-line-or-history 2>/dev/null
+bindkey '^[[H' beginning-of-line 2>/dev/null     # Home
+bindkey '^[[F' end-of-line 2>/dev/null           # End
+bindkey '^[[3~' delete-char 2>/dev/null          # Delete
+bindkey '^[[1;5C' forward-word 2>/dev/null        # Ctrl+Right
+bindkey '^[[1;5D' backward-word 2>/dev/null      # Ctrl+Left
+bindkey '^H' backward-kill-word 2>/dev/null
+bindkey '^R' history-incremental-search-backward 2>/dev/null
+
+# History substring search (dacă e disponibil)
+if (( ${+functions[history-substring-search-up]} )); then
+    bindkey '^[[A' history-substring-search-up 2>/dev/null
+    bindkey '^[[B' history-substring-search-down 2>/dev/null
+fi
+
+# Widget-uri custom
+bindkey '^ ' file_explorer_widget 2>/dev/null
+bindkey '^X^C' toggle_clipboard_bar 2>/dev/null
+
+# Alt keybinds (Meta)
+bindkey '^[u' cyber_toggle_topbar_widget 2>/dev/null
+bindkey '^[d' cyber_toggle_doctor_widget 2>/dev/null
+bindkey '^[p' cyber_toggle_parallax_widget 2>/dev/null
+bindkey '^[h' cyber_help_widget 2>/dev/null
+bindkey '^[s' cyber_search_widget 2>/dev/null
+bindkey '^[c' cyber_clip_widget 2>/dev/null
+bindkey '^[f' cyber_files_widget 2>/dev/null
+bindkey '^[m' cyber_macros_widget 2>/dev/null
 
 
 # FZF
@@ -4031,10 +4081,21 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
+# Welcome intro - apare și în tmux
+if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]]; then
   WELCOME_SHOWN=1
   CYBER_TOPBAR_ENABLED=0
   cinematic_intro
+  # Afișează bradul după intro
+  local brad_script=""
+  [[ -f "$HOME/brad_tui.py" ]] && brad_script="$HOME/brad_tui.py"
+  [[ -f "./brad_tui.py" ]] && brad_script="./brad_tui.py"
+  [[ -f "/workspace/brad_tui.py" ]] && brad_script="/workspace/brad_tui.py"
+  if command -v python3 >/dev/null 2>&1 && [[ -n "$brad_script" ]] && [[ -f "$brad_script" ]]; then
+    printf "\n%b🎄 Desenez bradul...%b\n" "${CYBER_COLORS[green]}" "${CYBER_STYLE[reset]}"
+    (timeout 3 python3 "$brad_script" 2>/dev/null || python3 "$brad_script" 2>/dev/null) || true
+    printf "\n"
+  fi
   CYBER_TOPBAR_ENABLED=1
 fi
 if [[ -o interactive ]] && (( PARALLAX_ENABLED )); then
@@ -4174,17 +4235,24 @@ update_cursor_state() {
     fi
 }
 
-# Apply cursor state
+# Apply cursor state - REPARAT pentru culori corecte
 apply_cursor_state() {
     local state="${CURRENT_CURSOR_STATE:-normal}"
+    [[ -t 1 ]] || return
 
     # Set cursor shape
-    printf '%b' "${CURSOR_STATES[$state]}"
+    printf '%b' "${CURSOR_STATES[$state]:-${CURSOR_STATES[normal]}}"
 
-    # Set cursor color (Kitty/compatible terminals)
-    if [[ "$TERM" == *"kitty"* ]]; then
-        printf '%b' "${CURSOR_COLORS[$state]}"
+    # Set cursor color (Kitty/compatible terminals) - FORȚAT
+    if [[ "$TERM" == *"kitty"* ]] || [[ -n "$KITTY_WINDOW_ID" ]]; then
+        local color="${CURSOR_COLORS[$state]:-${CURSOR_COLORS[normal]}}"
+        printf '%b' "$color"
+        # Forțează aplicarea culorii
+        printf '\033]12;#00ffff\007' 2>/dev/null || true
     fi
+    
+    # Flush pentru a asigura aplicarea
+    [[ -t 1 ]] && exec >&1
 }
 
 # Cursor pulse animation for busy state
@@ -4206,15 +4274,25 @@ cursor_update_widget() {
     zle -M ""
 }
 
-# Register the widget
+# Register the widget - REPARAT pentru culori cursor
 zle -N cursor_update_widget
 zle-line-init() {
     cursor_update_widget 2>/dev/null
+    # Aplică culoarea cursorului la începutul liniei
+    update_cursor_state 2>/dev/null
+    apply_cursor_state 2>/dev/null
 }
 zle -N zle-line-init
 zle-keymap-select() {
     cursor_update_widget 2>/dev/null
+    # Aplică culoarea cursorului la schimbarea keymap-ului
+    update_cursor_state 2>/dev/null
+    apply_cursor_state 2>/dev/null
 }
 zle -N zle-keymap-select
-zle-line-finish() { cursor_update_widget; }
+zle-line-finish() { 
+    cursor_update_widget 2>/dev/null
+    # Aplică culoarea cursorului la finalul liniei
+    apply_cursor_state 2>/dev/null
+}
 zle -N zle-line-finish
