@@ -276,7 +276,9 @@ FAST_HIGHLIGHT_STYLES[subtle-bg]='bg=234'
 zstyle ':completion:*' completer _extensions _complete
 zstyle ':completion:*' use-cache on
 zstyle ':completion:*' cache-path "${XDG_CACHE_HOME:-$HOME/.cache}/zsh/.zcompcache"
-zstyle ':completion:*' menu select
+zstyle ':completion:*' menu select=long
+zstyle ':completion:*' list-prompt '%SLinia %l  %p%s'
+zstyle ':completion:*' select-prompt '%SScrolling active: current selection at %p%s'
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
 zstyle ':completion:*' special-dirs true
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
@@ -300,6 +302,11 @@ zstyle ':completion:*:history-words' stop yes
 zstyle ':completion:*:history-words' remove-all-dups yes
 zstyle ':completion:*:history-words' list false
 zstyle ':completion:*:history-words' menu yes
+
+# Force completion menu la sfârșitul ecranului
+zstyle ':completion:*' list-packed true
+zstyle ':completion:*' list-rows-first true
+
 zstyle ':completion:*:ssh:*' tag-order 'hosts:-host:host hosts:-domain:domain hosts:-ipaddr:ip\ address *'
 zstyle ':completion:*:ssh:*' group-order users hosts-domain hosts-host users hosts-ipaddr
 zstyle ':completion:*:(ssh|scp|rsync):*:hosts-host' ignored-patterns '*(.|:)*' loopback ip6-loopback localhost ip6-localhost broadcasthost
@@ -898,18 +905,14 @@ cyber_precmd_restore_stderr_doctor_and_bar() {
 
     CYBER_LAST_CMD=""
 
-    # topbar persistent (idle)
-    if (( CYBER_TOPBAR_VISIBLE )); then
-        cyber_topbar_apply_scroll_region 2>/dev/null
-        cyber_enable_mouse
-        cyber_draw_utility_bar 2>/dev/null
-    else
-        cyber_topbar_reset_scroll_region 2>/dev/null
-    fi
+    # topbar persistent (idle) - FORȚEAZĂ REDESENARE
+    cyber_topbar_apply_scroll_region 2>/dev/null
+    cyber_enable_mouse
+    cyber_draw_utility_bar 2>/dev/null
 }
 
-# add-zsh-hook preexec cyber_preexec_capture_stderr
-# add-zsh-hook precmd  cyber_precmd_restore_stderr_doctor_and_bar
+add-zsh-hook preexec cyber_preexec_capture_stderr
+add-zsh-hook precmd  cyber_precmd_restore_stderr_doctor_and_bar
 
 alias grep='grep --color=auto'
 alias fgrep='fgrep --color=auto'
@@ -2184,6 +2187,22 @@ cinematic_intro() {
     gradient_text_animated "$welcome_msg"
 
     printf "\n"
+    
+    # Desenează bradul de Crăciun
+    local brad_path=""
+    if [[ -f "$HOME/brad_tui.py" ]]; then
+        brad_path="$HOME/brad_tui.py"
+    elif [[ -f "/workspace/brad_tui.py" ]]; then
+        brad_path="/workspace/brad_tui.py"
+    elif [[ -f "./brad_tui.py" ]]; then
+        brad_path="./brad_tui.py"
+    fi
+    
+    if [[ -n "$brad_path" ]] && command -v python3 >/dev/null 2>&1; then
+        printf "  %b🎄 Drawing Christmas tree...%b\n" "${CYBER_COLORS[green]}" "${CYBER_STYLE[reset]}"
+        timeout 5 python3 "$brad_path" 2>/dev/null || true
+        sleep 1
+    fi
 
     # Show cursor
     printf '\033[?25h'
@@ -2252,10 +2271,13 @@ _draw_static_stars() {
   printf '\e[s'
 
   for ((i=0; i<num_stars; i++)); do
-    h=$(( (1103515245 * (i * 7919 + 104729) + 12345) & 0x7FFFFFFF ))
+    h=$(( (1103515245 * (i * 7919 + EPOCHSECONDS + RANDOM) + 12345) & 0x7FFFFFFF ))
     x=$(( (h % (cols - 4)) + 3 ))
     h=$(( (h * 16807 + 1) & 0x7FFFFFFF ))
     y=$(( (h % (lines - 6)) + 4 ))
+    
+    # Evită zona de input (ultimele 2 linii)
+    (( y >= lines - 2 )) && continue
 
     # Salvează și tipul de culoare
     color_type=$(( h % 8 ))
@@ -3953,7 +3975,7 @@ preexec() {
 }
 precmd() {
     local last_exit=$?
-    # typeset -f cyber_precmd_restore_stderr_doctor_and_bar >/dev/null 2>&1 && cyber_precmd_restore_stderr_doctor_and_bar "$last_exit"
+    typeset -f cyber_precmd_restore_stderr_doctor_and_bar >/dev/null 2>&1 && cyber_precmd_restore_stderr_doctor_and_bar "$last_exit"
     typeset -f cyber_enable_mouse >/dev/null 2>&1 && cyber_enable_mouse
     CYBER_LAST_EXIT_CODE=$last_exit
     local dur=0
@@ -3970,6 +3992,10 @@ precmd() {
 
     detect_project
     CYBER_LAST_COMMAND="" CYBER_LAST_COMMAND_TIME=0
+    
+    # Resetează cursorul la normal după comandă
+    CURRENT_CURSOR_STATE="normal"
+    typeset -f apply_cursor_state >/dev/null 2>&1 && apply_cursor_state 2>/dev/null
 }
 # Forțează redesenarea barei după fiecare comandă
 _cyber_redraw_bar_precmd() {
@@ -3998,6 +4024,16 @@ bindkey '^H' backward-kill-word
 bindkey '^R' history-incremental-search-backward
 bindkey '^ ' file_explorer_widget
 bindkey '^X^C' toggle_clipboard_bar
+
+# Force cursor movement (override plugin conflicts)
+bindkey -M emacs '^[[C' forward-char
+bindkey -M emacs '^[[D' backward-char
+bindkey -M viins '^[[C' forward-char
+bindkey -M viins '^[[D' backward-char
+
+# Verifică widgets înainte de bind
+typeset -f file_explorer_widget >/dev/null 2>&1 || zle -N file_explorer_widget file_explorer
+typeset -f toggle_clipboard_bar >/dev/null 2>&1 || zle -N toggle_clipboard_bar
 
 
 # FZF
@@ -4031,7 +4067,7 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
+if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]]; then
   WELCOME_SHOWN=1
   CYBER_TOPBAR_ENABLED=0
   cinematic_intro
@@ -4181,10 +4217,8 @@ apply_cursor_state() {
     # Set cursor shape
     printf '%b' "${CURSOR_STATES[$state]}"
 
-    # Set cursor color (Kitty/compatible terminals)
-    if [[ "$TERM" == *"kitty"* ]]; then
-        printf '%b' "${CURSOR_COLORS[$state]}"
-    fi
+    # Set cursor color (Forțează pentru orice terminal compatibil)
+    printf '%b' "${CURSOR_COLORS[$state]}"
 }
 
 # Cursor pulse animation for busy state
