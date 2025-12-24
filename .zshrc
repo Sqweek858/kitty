@@ -314,15 +314,17 @@ zstyle ':completion:*:complete:-command-::commands' ignored-patterns '*\~'
 # SECTION 9: FZF CONFIGURATION
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
-zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
-zstyle ':fzf-tab:*' fzf-flags --border=rounded --height=60% --layout=reverse --info=inline
+# FZF-TAB: folosim fzf inline (NU popup), afișat JOS
+zstyle ':fzf-tab:*' fzf-command fzf
+zstyle ':fzf-tab:*' fzf-flags --border=rounded --height=~40% --layout=default --info=inline --margin=0,0,1,0
 zstyle ':fzf-tab:*' fzf-pad 4
-zstyle ':fzf-tab:*' fzf-min-height 20
+zstyle ':fzf-tab:*' fzf-min-height 10
 zstyle ':fzf-tab:*' switch-group ',' '.'
 zstyle ':fzf-tab:*' continuous-trigger '/'
 zstyle ':fzf-tab:*' accept-line enter
-zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always --icons $realpath'
-zstyle ':fzf-tab:complete:*:*' fzf-preview 'less ${(Q)realpath}'
+zstyle ':fzf-tab:*' popup-min-size 50 8
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always --icons $realpath 2>/dev/null || ls -la $realpath'
+zstyle ':fzf-tab:complete:*:*' fzf-preview 'less ${(Q)realpath} 2>/dev/null || echo "No preview"'
 zstyle ':fzf-tab:complete:*:options' fzf-preview ''
 zstyle ':fzf-tab:complete:*:argument-1' fzf-preview ''
 
@@ -333,10 +335,11 @@ export FZF_DEFAULT_OPTS="
 --color=marker:#00ff9f,spinner:#ff00ff,header:#00ff9f
 --color=gutter:#0a0a12,border:#00ffff
 --border=rounded
---height=60%
---layout=reverse
+--height=~40%
+--layout=default
 --info=inline
---prompt='❯'
+--margin=0,0,1,0
+--prompt='❯ '
 --pointer='▶'
 --marker='✓'
 --bind='ctrl-a:select-all'
@@ -574,13 +577,17 @@ typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-1}
 
 cyber_topbar_apply_scroll_region() {
   [[ -t 1 ]] || return
-  # Nu mai manipulăm scroll region - cauzează probleme
-  return 0
+  (( CYBER_TOPBAR_ENABLED )) || return
+  # Setăm scroll region să excludă ultimul rând unde e bara
+  local last_content_line=$(( ${LINES:-24} - 1 ))
+  (( last_content_line < 5 )) && return
+  printf '\e[1;%dr' "$last_content_line"
 }
 
 cyber_topbar_reset_scroll_region() {
   [[ -t 1 ]] || return
-  # printf '\e[r'              # reset full scroll region
+  # Reset la full screen pentru comenzi full-screen (vim, less, etc)
+  printf '\e[r'
 }
 cyber_enable_mouse()  { [[ -t 1 ]] || return; printf '\e[?1000h\e[?1006h'; }
 cyber_disable_mouse() { [[ -t 1 ]] || return; printf '\e[?1000l\e[?1006l'; }
@@ -2187,9 +2194,11 @@ cinematic_intro() {
 
     # Show cursor
     printf '\033[?25h'
-# Clear pentru parallax
-    clear
-
+    
+    # Așteaptă puțin să vadă userul intro-ul, apoi treci mai departe
+    # NU mai facem clear - intro-ul rămâne vizibil și parallax se desenează peste
+    sleep 1.5
+    
     # Mark as shown
     WELCOME_SHOWN=1
 }
@@ -2239,12 +2248,20 @@ parallax_scroll() {
 }
 
 # Generează și desenează stelele O SINGURĂ DATĂ
+# NOTĂ: Stelele se desenează DOAR pe primele linii goale pentru a nu interfera cu textul
+typeset -gi PARALLAX_MAX_LINES=6  # Câte linii de la top sunt pentru stele
+
 _draw_static_stars() {
   [[ -t 1 ]] || return
   (( STARS_DRAWN )) && return
+  (( PARALLAX_ENABLED )) || return
 
   local cols=${COLUMNS:-80} lines=${LINES:-24}
-  local num_stars=$(( cols * lines / 35 ))
+  # Limitează stelele la primele PARALLAX_MAX_LINES linii
+  local max_star_lines=$PARALLAX_MAX_LINES
+  (( max_star_lines > lines / 3 )) && max_star_lines=$(( lines / 3 ))
+  
+  local num_stars=$(( cols * max_star_lines / 20 ))  # Mai puține stele
   local i h x y brightness char r g b color_type
 
   STAR_POSITIONS=()
@@ -2255,7 +2272,8 @@ _draw_static_stars() {
     h=$(( (1103515245 * (i * 7919 + 104729) + 12345) & 0x7FFFFFFF ))
     x=$(( (h % (cols - 4)) + 3 ))
     h=$(( (h * 16807 + 1) & 0x7FFFFFFF ))
-    y=$(( (h % (lines - 6)) + 4 ))
+    # IMPORTANT: Stelele doar pe primele max_star_lines linii
+    y=$(( (h % max_star_lines) + 1 ))
 
     # Salvează și tipul de culoare
     color_type=$(( h % 8 ))
@@ -2276,27 +2294,29 @@ _draw_static_stars() {
       char="."
     fi
 
-    # CULORI DIFERITE pentru fiecare stea
+    # CULORI DIFERITE pentru fiecare stea (mai DIM pentru a nu distrage)
+    local dim=0.4  # Factor de dimming (0.0-1.0)
     case $color_type in
       0) # Cyan
-        r=$(( 40 + brightness )); g=$(( 180 + brightness/2 )); b=$(( 220 + brightness/3 )) ;;
+        r=$(( (40 + brightness) * 4 / 10 )); g=$(( (180 + brightness/2) * 4 / 10 )); b=$(( (220 + brightness/3) * 5 / 10 )) ;;
       1) # Magenta/Roz
-        r=$(( 180 + brightness/2 )); g=$(( 50 + brightness/2 )); b=$(( 180 + brightness/2 )) ;;
+        r=$(( (180 + brightness/2) * 4 / 10 )); g=$(( (50 + brightness/2) * 4 / 10 )); b=$(( (180 + brightness/2) * 4 / 10 )) ;;
       2) # Galben/Auriu
-        r=$(( 200 + brightness/3 )); g=$(( 180 + brightness/3 )); b=$(( 40 + brightness/3 )) ;;
+        r=$(( (200 + brightness/3) * 4 / 10 )); g=$(( (180 + brightness/3) * 4 / 10 )); b=$(( (40 + brightness/3) * 4 / 10 )) ;;
       3) # Verde
-        r=$(( 40 + brightness/2 )); g=$(( 180 + brightness/2 )); b=$(( 80 + brightness/2 )) ;;
+        r=$(( (40 + brightness/2) * 4 / 10 )); g=$(( (180 + brightness/2) * 4 / 10 )); b=$(( (80 + brightness/2) * 4 / 10 )) ;;
       4) # Portocaliu
-        r=$(( 220 + brightness/4 )); g=$(( 120 + brightness/3 )); b=$(( 30 + brightness/4 )) ;;
+        r=$(( (220 + brightness/4) * 4 / 10 )); g=$(( (120 + brightness/3) * 4 / 10 )); b=$(( (30 + brightness/4) * 4 / 10 )) ;;
       5) # Albastru
-        r=$(( 60 + brightness/2 )); g=$(( 100 + brightness/2 )); b=$(( 200 + brightness/3 )) ;;
+        r=$(( (60 + brightness/2) * 4 / 10 )); g=$(( (100 + brightness/2) * 4 / 10 )); b=$(( (200 + brightness/3) * 5 / 10 )) ;;
       6) # Alb/Argintiu
-        r=$(( 160 + brightness/2 )); g=$(( 170 + brightness/2 )); b=$(( 190 + brightness/2 )) ;;
+        r=$(( (160 + brightness/2) * 4 / 10 )); g=$(( (170 + brightness/2) * 4 / 10 )); b=$(( (190 + brightness/2) * 4 / 10 )) ;;
       7) # Roșu
-        r=$(( 200 + brightness/3 )); g=$(( 50 + brightness/3 )); b=$(( 60 + brightness/3 )) ;;
+        r=$(( (200 + brightness/3) * 4 / 10 )); g=$(( (50 + brightness/3) * 4 / 10 )); b=$(( (60 + brightness/3) * 4 / 10 )) ;;
     esac
 
     (( r > 255 )) && r=255; (( g > 255 )) && g=255; (( b > 255 )) && b=255
+    (( r < 20 )) && r=20; (( g < 20 )) && g=20; (( b < 20 )) && b=20  # Nu prea dark
     printf '\e[%d;%dH\e[38;2;%d;%d;%dm%s' "$y" "$x" "$r" "$g" "$b" "$char"
   done
 
@@ -2396,18 +2416,7 @@ generate_parallax_bg() { _draw_static_stars; }
 parallax_draw_fullscreen_skip() { :; }
 cyber_draw_parallax_header() { :; }
 
-cyber_toggle_parallax_widget() {
-  (( PARALLAX_ENABLED = !PARALLAX_ENABLED ))
-  if (( PARALLAX_ENABLED )); then
-    parallax_start
-    zle -M "✦ Stars: ON"
-  else
-    parallax_stop
-    zle -M "✦ Stars: OFF"
-  fi
-}
-zle -N cyber_toggle_parallax_widget
-bindkey '^[p' cyber_toggle_parallax_widget
+# NOTA: cyber_toggle_parallax_widget definit mai sus in SECTION 11
 #\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 # SECTION 17: FEATURE 6 - NLP FOR COMMAND CORRECTIONS
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -3941,6 +3950,78 @@ command_not_found_handler() {
     return 127
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# OUTPUT FRAMING - Chenare colorate pentru comenzi și răspunsuri
+# ═══════════════════════════════════════════════════════════════════════════════
+typeset -g CYBER_OUTPUT_FRAMING=${CYBER_OUTPUT_FRAMING:-1}
+
+# Desenează chenarul de START al comenzii
+_draw_command_frame_start() {
+    (( CYBER_OUTPUT_FRAMING )) || return
+    local cmd="$1"
+    local cols=${COLUMNS:-80}
+    local inner=$(( cols - 4 ))
+    (( inner < 20 )) && inner=20
+    
+    # Truncăm comanda dacă e prea lungă
+    local display_cmd="$cmd"
+    if (( ${#display_cmd} > inner - 10 )); then
+        display_cmd="${display_cmd[1,$((inner-13))]}..."
+    fi
+    
+    # Gradient pentru border (cyan -> magenta)
+    local c1='\033[38;2;0;255;255m'    # Cyan
+    local c2='\033[38;2;180;0;255m'    # Purple
+    local c3='\033[38;2;255;0;170m'    # Magenta
+    local rst='\033[0m'
+    
+    # Header cu comandă
+    printf '\n%b┌─' "$c1"
+    printf '%b[ %b⚡ %s %b]%b' "$c2" "$c3" "$display_cmd" "$c2" "$c1"
+    
+    # Completează cu linie până la capăt
+    local header_len=$(( ${#display_cmd} + 8 ))
+    local remaining=$(( cols - header_len - 3 ))
+    (( remaining > 0 )) && printf '%*s' "$remaining" '' | tr ' ' '─'
+    printf '┐%b\n' "$rst"
+}
+
+# Desenează chenarul de END al comenzii (după output)
+_draw_command_frame_end() {
+    (( CYBER_OUTPUT_FRAMING )) || return
+    local exit_code=$1
+    local duration=$2
+    local cols=${COLUMNS:-80}
+    
+    local c1 c2 status_icon
+    if (( exit_code == 0 )); then
+        c1='\033[38;2;0;255;127m'      # Verde neon
+        c2='\033[38;2;0;255;255m'      # Cyan
+        status_icon='✓'
+    else
+        c1='\033[38;2;255;50;50m'      # Roșu
+        c2='\033[38;2;255;100;0m'      # Portocaliu
+        status_icon="✗ $exit_code"
+    fi
+    local rst='\033[0m'
+    
+    # Footer cu status
+    printf '%b└─' "$c1"
+    
+    local status_str="[ $status_icon"
+    if (( duration > 1 )); then
+        status_str+=" │ ${duration}s"
+    fi
+    status_str+=" ]"
+    
+    printf '%b%s%b' "$c2" "$status_str" "$c1"
+    
+    local footer_len=$(( ${#status_str} + 2 ))
+    local remaining=$(( cols - footer_len - 3 ))
+    (( remaining > 0 )) && printf '%*s' "$remaining" '' | tr ' ' '─'
+    printf '┘%b\n' "$rst"
+}
+
 # HOOKS
 preexec() {
     typeset -f cyber_preexec_capture_stderr >/dev/null 2>&1 && cyber_preexec_capture_stderr
@@ -3950,10 +4031,15 @@ preexec() {
     CYBER_TERMINAL_BUSY=1
     update_activity
     [[ $CYBER_RECORDING_MACRO -eq 1 ]] && macro_add_command "$1"
+    
+    # Desenează chenarul de start pentru comandă
+    _draw_command_frame_start "$1"
+    
+    # Reset scroll region pentru comenzi (permite full screen)
+    cyber_topbar_reset_scroll_region 2>/dev/null
 }
 precmd() {
     local last_exit=$?
-    # typeset -f cyber_precmd_restore_stderr_doctor_and_bar >/dev/null 2>&1 && cyber_precmd_restore_stderr_doctor_and_bar "$last_exit"
     typeset -f cyber_enable_mouse >/dev/null 2>&1 && cyber_enable_mouse
     CYBER_LAST_EXIT_CODE=$last_exit
     local dur=0
@@ -3961,15 +4047,20 @@ precmd() {
     CYBER_TERMINAL_BUSY=0
 
     [[ -n "$CYBER_LAST_COMMAND" ]] && {
+        # Desenează chenarul de end pentru output
+        _draw_command_frame_end $last_exit $dur
+        
         update_command_frequency "$CYBER_LAST_COMMAND"
         record_command_sequence "$CYBER_LAST_COMMAND"
         timeline_add $CYBER_LAST_EXIT_CODE $dur "$CYBER_LAST_COMMAND"
-        [[ $dur -gt 10 ]] && printf "%b⏱ %ds%b\n" "${CYBER_COLORS[cyan]}" "$dur" "${CYBER_STYLE[reset]}"
         [[ $CYBER_LAST_EXIT_CODE -ne 0 ]] && [[ $CYBER_LAST_EXIT_CODE -ne 127 ]] && predict_next_command
     }
 
     detect_project
     CYBER_LAST_COMMAND="" CYBER_LAST_COMMAND_TIME=0
+    
+    # Re-aplică scroll region pentru a proteja bara
+    cyber_topbar_apply_scroll_region 2>/dev/null
 }
 # Forțează redesenarea barei după fiecare comandă
 _cyber_redraw_bar_precmd() {
@@ -3979,23 +4070,69 @@ add-zsh-hook precmd _cyber_redraw_bar_precmd
 
 # KEY BINDINGS
 bindkey -e
-bindkey '^[[C' forward-char        # Săgeată dreapta
-bindkey '^[[D' backward-char       # Săgeată stânga
+
+# Reduce timeout pentru escape sequences (mai responsive)
+export KEYTIMEOUT=1
+
+# === Navigare de bază (Ctrl + taste) ===
 bindkey '^A' beginning-of-line
 bindkey '^E' end-of-line
 bindkey '^B' backward-char
 bindkey '^F' forward-char
 bindkey '^P' up-line-or-history
 bindkey '^N' down-line-or-history
-bindkey '^[[A' history-substring-search-up 2>/dev/null
-bindkey '^[[B' history-substring-search-down 2>/dev/null
-bindkey '^[[H' beginning-of-line
-bindkey '^[[F' end-of-line
-bindkey '^[[3~' delete-char
-bindkey '^[[1;5C' forward-word
-bindkey '^[[1;5D' backward-word
 bindkey '^H' backward-kill-word
+bindkey '^W' backward-kill-word
+bindkey '^U' backward-kill-line
+bindkey '^K' kill-line
+bindkey '^Y' yank
 bindkey '^R' history-incremental-search-backward
+
+# === Săgeți - format standard (xterm/vt100) ===
+bindkey '^[[A' up-line-or-history           # Săgeată sus
+bindkey '^[[B' down-line-or-history         # Săgeată jos
+bindkey '^[[C' forward-char                 # Săgeată dreapta
+bindkey '^[[D' backward-char                # Săgeată stânga
+
+# === Săgeți - format alternativ (Kitty/tmux) ===
+bindkey '^[OA' up-line-or-history           # Săgeată sus (application mode)
+bindkey '^[OB' down-line-or-history         # Săgeată jos (application mode)
+bindkey '^[OC' forward-char                 # Săgeată dreapta (application mode)
+bindkey '^[OD' backward-char                # Săgeată stânga (application mode)
+
+# === Home/End ===
+bindkey '^[[H' beginning-of-line            # Home
+bindkey '^[[F' end-of-line                  # End
+bindkey '^[[1~' beginning-of-line           # Home (alt)
+bindkey '^[[4~' end-of-line                 # End (alt)
+bindkey '^[OH' beginning-of-line            # Home (application mode)
+bindkey '^[OF' end-of-line                  # End (application mode)
+
+# === Delete/Backspace ===
+bindkey '^[[3~' delete-char                 # Delete
+bindkey '^?' backward-delete-char           # Backspace
+bindkey '^[[3;5~' kill-word                 # Ctrl+Delete
+
+# === Ctrl + Săgeți (navigare pe cuvinte) ===
+bindkey '^[[1;5C' forward-word              # Ctrl+Dreapta
+bindkey '^[[1;5D' backward-word             # Ctrl+Stânga
+bindkey '^[[1;5A' beginning-of-line         # Ctrl+Sus
+bindkey '^[[1;5B' end-of-line               # Ctrl+Jos
+# Format alternativ
+bindkey '^[^[[C' forward-word               # Alt+Dreapta (some terms)
+bindkey '^[^[[D' backward-word              # Alt+Stânga (some terms)
+bindkey '^[f' forward-word                  # Alt+f
+bindkey '^[b' backward-word                 # Alt+b
+
+# === History substring search (dacă pluginul e încărcat) ===
+if (( ${+functions[history-substring-search-up]} )); then
+    bindkey '^[[A' history-substring-search-up
+    bindkey '^[[B' history-substring-search-down
+    bindkey '^[OA' history-substring-search-up
+    bindkey '^[OB' history-substring-search-down
+fi
+
+# === Custom widgets ===
 bindkey '^ ' file_explorer_widget
 bindkey '^X^C' toggle_clipboard_bar
 
@@ -4031,11 +4168,18 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
-  WELCOME_SHOWN=1
-  CYBER_TOPBAR_ENABLED=0
-  cinematic_intro
-  CYBER_TOPBAR_ENABLED=1
+# Welcome intro - rulează doar prima dată în sesiunea tmux
+# Folosim un fișier temporar bazat pe sesiunea tmux pentru a detecta prima deschidere
+if [[ -o interactive ]] && [[ -n "$TMUX" ]]; then
+  local tmux_session_file="/tmp/.cyber_intro_${TMUX_PANE:-$$}"
+  if [[ ! -f "$tmux_session_file" ]]; then
+    touch "$tmux_session_file"
+    WELCOME_SHOWN=0
+    CYBER_TOPBAR_ENABLED=0
+    cinematic_intro
+    WELCOME_SHOWN=1
+    CYBER_TOPBAR_ENABLED=1
+  fi
 fi
 if [[ -o interactive ]] && (( PARALLAX_ENABLED )); then
   parallax_start
@@ -4178,12 +4322,20 @@ update_cursor_state() {
 apply_cursor_state() {
     local state="${CURRENT_CURSOR_STATE:-normal}"
 
-    # Set cursor shape
+    # Set cursor shape (funcționează în majoritatea terminalelor)
     printf '%b' "${CURSOR_STATES[$state]}"
 
-    # Set cursor color (Kitty/compatible terminals)
-    if [[ "$TERM" == *"kitty"* ]]; then
-        printf '%b' "${CURSOR_COLORS[$state]}"
+    # Set cursor color - verificăm dacă suntem în Kitty (inclusiv prin tmux)
+    # KITTY_WINDOW_ID e setat de Kitty chiar și în tmux
+    if [[ -n "$KITTY_WINDOW_ID" ]] || [[ "$TERM" == *"kitty"* ]] || [[ "$TERM_PROGRAM" == "kitty" ]]; then
+        # Folosim escape sequence pentru Kitty
+        # În tmux, trebuie să wrappuim cu \ePtmux; pentru passthrough
+        if [[ -n "$TMUX" ]]; then
+            # Passthrough tmux către Kitty
+            printf '\ePtmux;\e%b\e\\' "${CURSOR_COLORS[$state]}"
+        else
+            printf '%b' "${CURSOR_COLORS[$state]}"
+        fi
     fi
 }
 
