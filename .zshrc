@@ -314,17 +314,38 @@ zstyle ':completion:*:complete:-command-::commands' ignored-patterns '*\~'
 # SECTION 9: FZF CONFIGURATION
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 
-zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
-zstyle ':fzf-tab:*' fzf-flags --border=rounded --height=60% --layout=reverse --info=inline
-zstyle ':fzf-tab:*' fzf-pad 4
-zstyle ':fzf-tab:*' fzf-min-height 20
+# FZF-TAB Configuration - afișare JOS, fără popup tmux
+# Folosim fzf standard în loc de tmux popup pentru stabilitate
+zstyle ':fzf-tab:*' fzf-command fzf
+
+# Poziție: jos, înălțime 40%, layout reverse (sus-jos)
+zstyle ':fzf-tab:*' fzf-flags \
+    --height=40% \
+    --layout=reverse \
+    --border=rounded \
+    --info=inline \
+    --margin=0,0,0,0 \
+    --padding=0
+
+# Pad pentru a lăsa spațiu pentru bara de utilități
+zstyle ':fzf-tab:*' fzf-pad 2
+zstyle ':fzf-tab:*' fzf-min-height 10
+
+# Controale
 zstyle ':fzf-tab:*' switch-group ',' '.'
 zstyle ':fzf-tab:*' continuous-trigger '/'
 zstyle ':fzf-tab:*' accept-line enter
-zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always --icons $realpath'
-zstyle ':fzf-tab:complete:*:*' fzf-preview 'less ${(Q)realpath}'
+
+# Preview doar pentru cd (restul dezactivat pentru viteză)
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always --icons $realpath 2>/dev/null || ls -la $realpath'
 zstyle ':fzf-tab:complete:*:options' fzf-preview ''
 zstyle ':fzf-tab:complete:*:argument-1' fzf-preview ''
+
+# Dezactivăm preview pentru alte completări (prea intruziv)
+zstyle ':fzf-tab:complete:*:*' fzf-preview ''
+
+# Popup tmux DEZACTIVAT - cauzează probleme cu poziționarea
+# zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
 
 export FZF_DEFAULT_OPTS="
 --color=fg:#00ffff,bg:#0a0a12,hl:#ff00ff
@@ -546,6 +567,73 @@ cyber_box_separator() {
   print -- "╣${CYBER_STYLE[reset]}"
 }
 
+# =========================
+# CHENARE PENTRU OUTPUT
+# =========================
+
+# Chenar cu gradient pentru comandă (afișat înainte de execuție)
+cyber_cmd_box_start() {
+  local cmd="$1"
+  local cols=${COLUMNS:-80}
+  local width=$(( cols - 4 ))
+  (( width > 100 )) && width=100
+  
+  # Gradient: cyan -> magenta
+  printf '\n'
+  printf '%b╭─' "${CYBER_COLORS[cyan]}"
+  printf '%b ❯ ' "${CYBER_COLORS[magenta]}"
+  printf '%b%s' "${CYBER_COLORS[electric_blue]}" "${cmd:0:$((width-10))}"
+  printf ' %b─' "${CYBER_COLORS[cyan]}"
+  local used=$(( 6 + ${#cmd} ))
+  (( used > width )) && used=$width
+  local remaining=$(( width - used ))
+  (( remaining > 0 )) && printf '%*s' "$remaining" '' | tr ' ' '─'
+  printf '╮%b\n' "${CYBER_STYLE[reset]}"
+}
+
+# Chenar de final (după execuție)
+cyber_cmd_box_end() {
+  local exit_code="$1"
+  local duration="$2"
+  local cols=${COLUMNS:-80}
+  local width=$(( cols - 4 ))
+  (( width > 100 )) && width=100
+  
+  local color="green"
+  local icon="✓"
+  (( exit_code != 0 )) && { color="red"; icon="✗"; }
+  
+  printf '%b╰─' "${CYBER_COLORS[$color]}"
+  printf ' %s ' "$icon"
+  if (( duration > 0 )); then
+    printf '%b⏱ %ds ' "${CYBER_COLORS[cyan]}" "$duration"
+  fi
+  if (( exit_code != 0 )); then
+    printf '%b[exit %d] ' "${CYBER_COLORS[red]}" "$exit_code"
+  fi
+  local used=10
+  (( duration > 0 )) && used=$(( used + 8 ))
+  (( exit_code != 0 )) && used=$(( used + 12 ))
+  local remaining=$(( width - used ))
+  (( remaining > 0 )) && printf '%*s' "$remaining" '' | tr ' ' '─'
+  printf '─╯%b\n' "${CYBER_STYLE[reset]}"
+}
+
+# Wrapper pentru a rula comandă cu chenare (opțional, pentru comenzi specifice)
+boxed() {
+  local cmd="$*"
+  cyber_cmd_box_start "$cmd"
+  local start_t=$EPOCHSECONDS
+  eval "$cmd"
+  local exit_code=$?
+  local dur=$(( EPOCHSECONDS - start_t ))
+  cyber_cmd_box_end "$exit_code" "$dur"
+  return $exit_code
+}
+
+# Toggle pentru chenare automate
+typeset -gi CYBER_BOXED_OUTPUT=${CYBER_BOXED_OUTPUT:-0}
+
 # Get system metrics
 get_cpu_load() {
     local load=$(cat /proc/loadavg 2>/dev/null | cut -d' ' -f1)
@@ -719,6 +807,14 @@ cyber_toggle_doctor_widget() {
 zle -N cyber_toggle_doctor_widget
 bindkey '^[d' cyber_toggle_doctor_widget
 
+# Toggle chenare pentru output
+cyber_toggle_boxes_widget() {
+  (( CYBER_BOXED_OUTPUT = !CYBER_BOXED_OUTPUT ))
+  zle -M "Boxed output: $([[ $CYBER_BOXED_OUTPUT -eq 1 ]] && echo ON || echo OFF)"
+}
+zle -N cyber_toggle_boxes_widget
+bindkey '^[b' cyber_toggle_boxes_widget
+
 cyber_toggle_parallax_widget() {
   (( PARALLAX_ENABLED = !PARALLAX_ENABLED ))
   zle -M "Parallax: $([[ $PARALLAX_ENABLED -eq 1 ]] && echo ON || echo OFF)"
@@ -740,7 +836,7 @@ zle -N cyber_toggle_parallax_widget
 bindkey '^[p' cyber_toggle_parallax_widget
 
 cyber_help_widget() {
-  zle -M "Keys: Alt+U topbar | Alt+D doctor | Alt+P parallax | ? query | fr cmd (foldrun)"
+  zle -M "Keys: Alt+U topbar | Alt+D doctor | Alt+P parallax | Alt+B boxes | ? query | fr cmd (foldrun)"
 }
 zle -N cyber_help_widget
 bindkey '^[h' cyber_help_widget
@@ -899,12 +995,10 @@ cyber_precmd_restore_stderr_doctor_and_bar() {
     CYBER_LAST_CMD=""
 
     # topbar persistent (idle)
-    if (( CYBER_TOPBAR_VISIBLE )); then
+    if (( CYBER_TOPBAR_ENABLED )); then
         cyber_topbar_apply_scroll_region 2>/dev/null
         cyber_enable_mouse
         cyber_draw_utility_bar 2>/dev/null
-    else
-        cyber_topbar_reset_scroll_region 2>/dev/null
     fi
 }
 
@@ -2187,11 +2281,15 @@ cinematic_intro() {
 
     # Show cursor
     printf '\033[?25h'
-# Clear pentru parallax
-    clear
-
+    
+    # Pauza scurtă pentru a vedea intro-ul
+    sleep 1.5
+    
     # Mark as shown
     WELCOME_SHOWN=1
+    
+    # NU mai dăm clear - lăsăm intro-ul vizibil
+    # Parallax-ul va desena peste fundal, nu va șterge nimic
 }
 
 # Quick welcome (non-cinematic)
@@ -2239,12 +2337,21 @@ parallax_scroll() {
 }
 
 # Generează și desenează stelele O SINGURĂ DATĂ
+# MODIFICAT: Lasă ultimele 8 rânduri libere pentru prompt/output
 _draw_static_stars() {
   [[ -t 1 ]] || return
   (( STARS_DRAWN )) && return
 
   local cols=${COLUMNS:-80} lines=${LINES:-24}
-  local num_stars=$(( cols * lines / 35 ))
+  
+  # IMPORTANT: Rezervăm ultimele 8 rânduri pentru text/prompt
+  local safe_lines=$(( lines - 8 ))
+  (( safe_lines < 5 )) && safe_lines=5
+  
+  # Mai puține stele, distribuite doar în zona sigură (sus)
+  local num_stars=$(( cols * safe_lines / 50 ))
+  (( num_stars > 80 )) && num_stars=80  # cap la 80 stele
+  
   local i h x y brightness char r g b color_type
 
   STAR_POSITIONS=()
@@ -2253,9 +2360,10 @@ _draw_static_stars() {
 
   for ((i=0; i<num_stars; i++)); do
     h=$(( (1103515245 * (i * 7919 + 104729) + 12345) & 0x7FFFFFFF ))
-    x=$(( (h % (cols - 4)) + 3 ))
+    x=$(( (h % (cols - 6)) + 3 ))
     h=$(( (h * 16807 + 1) & 0x7FFFFFFF ))
-    y=$(( (h % (lines - 6)) + 4 ))
+    # Y doar în zona sigură (rândurile 2 până la safe_lines)
+    y=$(( (h % (safe_lines - 2)) + 2 ))
 
     # Salvează și tipul de culoare
     color_type=$(( h % 8 ))
@@ -2396,18 +2504,7 @@ generate_parallax_bg() { _draw_static_stars; }
 parallax_draw_fullscreen_skip() { :; }
 cyber_draw_parallax_header() { :; }
 
-cyber_toggle_parallax_widget() {
-  (( PARALLAX_ENABLED = !PARALLAX_ENABLED ))
-  if (( PARALLAX_ENABLED )); then
-    parallax_start
-    zle -M "✦ Stars: ON"
-  else
-    parallax_stop
-    zle -M "✦ Stars: OFF"
-  fi
-}
-zle -N cyber_toggle_parallax_widget
-bindkey '^[p' cyber_toggle_parallax_widget
+# (funcție mutată mai sus - vezi SECTION cyber_toggle_parallax_widget)
 #\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 # SECTION 17: FEATURE 6 - NLP FOR COMMAND CORRECTIONS
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -3943,13 +4040,20 @@ command_not_found_handler() {
 
 # HOOKS
 preexec() {
-    typeset -f cyber_preexec_capture_stderr >/dev/null 2>&1 && cyber_preexec_capture_stderr
+    # DEZACTIVAT: captura de stderr cauzează probleme cu output-ul
+    # typeset -f cyber_preexec_capture_stderr >/dev/null 2>&1 && cyber_preexec_capture_stderr
+    
+    # Dezactivează mouse-ul doar temporar în timpul comenzii
     typeset -f cyber_disable_mouse >/dev/null 2>&1 && cyber_disable_mouse
+    
     CYBER_LAST_COMMAND="$1"
     CYBER_LAST_COMMAND_TIME=$EPOCHSECONDS
     CYBER_TERMINAL_BUSY=1
     update_activity
     [[ $CYBER_RECORDING_MACRO -eq 1 ]] && macro_add_command "$1"
+    
+    # Chenar de start (dacă e activat)
+    (( CYBER_BOXED_OUTPUT )) && cyber_cmd_box_start "$1"
 }
 precmd() {
     local last_exit=$?
@@ -3964,7 +4068,15 @@ precmd() {
         update_command_frequency "$CYBER_LAST_COMMAND"
         record_command_sequence "$CYBER_LAST_COMMAND"
         timeline_add $CYBER_LAST_EXIT_CODE $dur "$CYBER_LAST_COMMAND"
-        [[ $dur -gt 10 ]] && printf "%b⏱ %ds%b\n" "${CYBER_COLORS[cyan]}" "$dur" "${CYBER_STYLE[reset]}"
+        
+        # Chenar de final (dacă e activat)
+        if (( CYBER_BOXED_OUTPUT )); then
+            cyber_cmd_box_end "$CYBER_LAST_EXIT_CODE" "$dur"
+        else
+            # Fallback: doar mesaj pentru comenzi lungi
+            [[ $dur -gt 10 ]] && printf "%b⏱ %ds%b\n" "${CYBER_COLORS[cyan]}" "$dur" "${CYBER_STYLE[reset]}"
+        fi
+        
         [[ $CYBER_LAST_EXIT_CODE -ne 0 ]] && [[ $CYBER_LAST_EXIT_CODE -ne 127 ]] && predict_next_command
     }
 
@@ -3977,27 +4089,80 @@ _cyber_redraw_bar_precmd() {
 }
 add-zsh-hook precmd _cyber_redraw_bar_precmd
 
-# KEY BINDINGS
-bindkey -e
+# KEY BINDINGS - Complet pentru Kitty și terminale compatibile
+bindkey -e  # emacs mode (standard)
+
+# =========================
+# NAVIGARE DE BAZĂ (SĂGEȚI)
+# =========================
 bindkey '^[[C' forward-char        # Săgeată dreapta
 bindkey '^[[D' backward-char       # Săgeată stânga
-bindkey '^A' beginning-of-line
-bindkey '^E' end-of-line
-bindkey '^B' backward-char
-bindkey '^F' forward-char
-bindkey '^P' up-line-or-history
-bindkey '^N' down-line-or-history
-bindkey '^[[A' history-substring-search-up 2>/dev/null
-bindkey '^[[B' history-substring-search-down 2>/dev/null
-bindkey '^[[H' beginning-of-line
-bindkey '^[[F' end-of-line
-bindkey '^[[3~' delete-char
-bindkey '^[[1;5C' forward-word
-bindkey '^[[1;5D' backward-word
-bindkey '^H' backward-kill-word
+bindkey '^[OC' forward-char        # Săgeată dreapta (alt mode)
+bindkey '^[OD' backward-char       # Săgeată stânga (alt mode)
+
+# =========================
+# NAVIGARE LINIE
+# =========================
+bindkey '^A' beginning-of-line     # Ctrl+A - început linie
+bindkey '^E' end-of-line           # Ctrl+E - sfârșit linie
+bindkey '^[[H' beginning-of-line   # Home
+bindkey '^[[F' end-of-line         # End
+bindkey '^[[1~' beginning-of-line  # Home (alt)
+bindkey '^[[4~' end-of-line        # End (alt)
+bindkey '^[OH' beginning-of-line   # Home (kitty)
+bindkey '^[OF' end-of-line         # End (kitty)
+
+# =========================
+# NAVIGARE CARACTER
+# =========================
+bindkey '^B' backward-char         # Ctrl+B - caracter înapoi
+bindkey '^F' forward-char          # Ctrl+F - caracter înainte
+
+# =========================
+# NAVIGARE CUVÂNT
+# =========================
+bindkey '^[[1;5C' forward-word     # Ctrl+Săgeată dreapta
+bindkey '^[[1;5D' backward-word    # Ctrl+Săgeată stânga
+bindkey '^[f' forward-word         # Alt+F - cuvânt înainte
+bindkey '^[b' backward-word        # Alt+B - cuvânt înapoi
+bindkey '^[^[[C' forward-word      # Alt+Săgeată dreapta (kitty)
+bindkey '^[^[[D' backward-word     # Alt+Săgeată stânga (kitty)
+
+# =========================
+# HISTORY
+# =========================
+bindkey '^P' up-line-or-history    # Ctrl+P - history sus
+bindkey '^N' down-line-or-history  # Ctrl+N - history jos
+bindkey '^[[A' up-line-or-history  # Săgeată sus - history
+bindkey '^[[B' down-line-or-history # Săgeată jos - history
+
+# History substring search (dacă e disponibil)
+if (( ${+widgets[history-substring-search-up]} )); then
+    bindkey '^[[A' history-substring-search-up
+    bindkey '^[[B' history-substring-search-down
+fi
+
+# =========================
+# ȘTERGERE
+# =========================
+bindkey '^[[3~' delete-char        # Delete
+bindkey '^?' backward-delete-char  # Backspace
+bindkey '^H' backward-kill-word    # Ctrl+H sau Ctrl+Backspace - șterge cuvânt
+bindkey '^W' backward-kill-word    # Ctrl+W - șterge cuvânt (standard)
+bindkey '^U' kill-whole-line       # Ctrl+U - șterge linia
+bindkey '^K' kill-line             # Ctrl+K - șterge până la sfârșit
+
+# =========================
+# SEARCH
+# =========================
 bindkey '^R' history-incremental-search-backward
-bindkey '^ ' file_explorer_widget
-bindkey '^X^C' toggle_clipboard_bar
+bindkey '^S' history-incremental-search-forward
+
+# =========================
+# CUSTOM (cyber shell)
+# =========================
+bindkey '^ ' file_explorer_widget 2>/dev/null   # Ctrl+Space
+bindkey '^X^C' toggle_clipboard_bar 2>/dev/null # Ctrl+X Ctrl+C
 
 
 # FZF
@@ -4200,21 +4365,30 @@ cursor_pulse() {
     done
 }
 
-# ZLE widget for cursor update
+# ZLE widget for cursor update - SIMPLIFICAT
 cursor_update_widget() {
     update_cursor_state
-    zle -M ""
+    # NU mai apelăm zle -M "" - cauza probleme cu input
 }
 
-# Register the widget
+# Register the widget - doar pentru schimbări de mod, nu line-init
 zle -N cursor_update_widget
+
+# zle-line-init e critic - doar actualizează cursorul fără să interfereze
 zle-line-init() {
-    cursor_update_widget 2>/dev/null
+    apply_cursor_state 2>/dev/null
 }
 zle -N zle-line-init
+
+# zle-keymap-select - pentru vi mode (dacă e folosit)
 zle-keymap-select() {
-    cursor_update_widget 2>/dev/null
+    apply_cursor_state 2>/dev/null
 }
 zle -N zle-keymap-select
-zle-line-finish() { cursor_update_widget; }
+
+# zle-line-finish - resetează la finish
+zle-line-finish() { 
+    CURRENT_CURSOR_STATE="normal"
+    apply_cursor_state 2>/dev/null
+}
 zle -N zle-line-finish
