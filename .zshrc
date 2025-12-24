@@ -570,7 +570,7 @@ typeset -g CYBER_STDERR_LOG="${XDG_CACHE_HOME:-$HOME/.cache}/cyberpunk_stderr.lo
 typeset -gi CYBER_STDERR_FD=-1
 
 typeset -gi CYBER_TOPBAR_ENABLED=${CYBER_TOPBAR_ENABLED:-1}
-typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-1}
+typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-0}
 
 cyber_topbar_apply_scroll_region() {
   [[ -t 1 ]] || return
@@ -2179,6 +2179,15 @@ cinematic_intro() {
 
     printf "\n"
 
+    # Show Tree (added)
+    if [[ -f /workspace/brad_tui.py ]]; then
+        timeout 5s python3 /workspace/brad_tui.py 2>/dev/null
+        clear
+    elif [[ -f brad_tui.py ]]; then
+        timeout 5s python3 brad_tui.py 2>/dev/null
+        clear
+    fi
+
     # Final welcome message with gradient
     local welcome_msg="    Welcome to the CYBERPUNK SHELL EXPERIENCE    "
     gradient_text_animated "$welcome_msg"
@@ -2367,10 +2376,11 @@ _twinkle_few_stars() {
 
 parallax_tick() {
   _draw_static_stars
-  while (( PARALLAX_ENABLED )); do
-    sleep 0.4
-    _twinkle_few_stars
-  done
+  # Disabled async loop to prevent overlapping text
+  # while (( PARALLAX_ENABLED )); do
+  #   sleep 0.4
+  #   _twinkle_few_stars
+  # done
 }
 
 parallax_start() {
@@ -3945,6 +3955,7 @@ command_not_found_handler() {
 preexec() {
     typeset -f cyber_preexec_capture_stderr >/dev/null 2>&1 && cyber_preexec_capture_stderr
     typeset -f cyber_disable_mouse >/dev/null 2>&1 && cyber_disable_mouse
+    (( CYBER_TOPBAR_ENABLED )) && cyber_clear_utility_bar 2>/dev/null
     CYBER_LAST_COMMAND="$1"
     CYBER_LAST_COMMAND_TIME=$EPOCHSECONDS
     CYBER_TERMINAL_BUSY=1
@@ -4031,7 +4042,7 @@ load_command_frequency
 load_command_sequences
 clipboard_load
 detect_project
-if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
+if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]]; then
   WELCOME_SHOWN=1
   CYBER_TOPBAR_ENABLED=0
   cinematic_intro
