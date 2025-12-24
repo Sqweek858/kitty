@@ -44,7 +44,10 @@ setopt MULTIOS
 setopt EXTENDED_GLOB
 setopt NO_BEEP
 setopt INTERACTIVE_COMMENTS
-setopt CORRECT
+# ATENȚIE: CORRECT (auto-correct builtin din zsh) e intruziv și poate bloca input-ul
+# cu prompt-uri “corectezi comanda?”. Îl dezactivăm și lăsăm doar mecanismele custom
+# (doctor/intent/NLP) controlabile.
+unsetopt CORRECT
 # setopt CORRECT_ALL
 setopt AUTO_LIST
 setopt AUTO_MENU
@@ -574,20 +577,28 @@ typeset -gi CYBER_DOCTOR_AUTO=${CYBER_DOCTOR_AUTO:-1}
 
 cyber_topbar_apply_scroll_region() {
   [[ -t 1 ]] || return
-  # Nu mai manipulăm scroll region - cauzează probleme
+  # Păstrăm UI sticky rezervând primele 2 linii pentru bar-uri.
+  # Output-ul/prompt-ul vor scroll-a doar în regiunea 3..LINES.
+  local lines=${LINES:-24}
+  (( lines < 8 )) && return 0
+  printf '\e[3;%dr' "$lines"
   return 0
 }
 
 cyber_topbar_reset_scroll_region() {
   [[ -t 1 ]] || return
-  # printf '\e[r'              # reset full scroll region
+  printf '\e[r'              # reset full scroll region
 }
-cyber_enable_mouse()  { [[ -t 1 ]] || return; printf '\e[?1000h\e[?1006h'; }
-cyber_disable_mouse() { [[ -t 1 ]] || return; printf '\e[?1000l\e[?1006l'; }
+typeset -gi CYBER_MOUSE_ENABLED=${CYBER_MOUSE_ENABLED:-0}
+# Mouse reporting în shell rupe selecția/click-ul normal (trimite ESC sequences).
+# OFF implicit; îl poți activa doar dacă chiar vrei click pe topbar.
+cyber_enable_mouse()  { [[ -t 1 ]] || return; (( CYBER_MOUSE_ENABLED )) || return; printf '\e[?1000h\e[?1006h'; }
+cyber_disable_mouse() { [[ -t 1 ]] || return; (( CYBER_MOUSE_ENABLED )) || return; printf '\e[?1000l\e[?1006l'; }
 
 cyber_clear_utility_bar() {
   [[ -t 1 ]] || return
-  printf '\e[s\e[%d;1H\e[2K\e[u' "${LINES:-24}"
+  # Curăță liniile UI rezervate (topbar + bar secundar)
+  printf '\e[s\e[1;1H\e[2K\e[2;1H\e[2K\e[u'
 }
 
 cyber_parallax_badge() {
@@ -689,8 +700,8 @@ cyber_draw_utility_bar() {
   local col=$(( cols - len + 1 ))
   (( col < 1 )) && col=1
   CYBER_TOPBAR_START_COL=$col
-# Desenează pe ULTIMUL rând, nu primul
-  printf '\e[s\e[%d;1H\e[2K\e[%d;%dH' "$LINES" "$LINES" "$col"
+# Desenează pe PRIMA linie (sticky). Linia 2 e rezervată pentru panouri/mesaje.
+  printf '\e[s\e[1;1H\e[2K\e[1;%dH' "$col"
   print -n -- "${CYBER_BG[panel]}${CYBER_COLORS[electric_blue]}${content}${CYBER_STYLE[reset]}"
   printf '\e[u'
 
@@ -2375,15 +2386,18 @@ parallax_tick() {
 
 parallax_start() {
   (( PARALLAX_ENABLED )) || return
-  if [[ -z "$PARALLAX_PID" ]] || ! kill -0 "$PARALLAX_PID" 2>/dev/null; then
-    parallax_tick &!
-    PARALLAX_PID=$!
-  fi
+  # IMPORTANT: nu rulăm un proces care scrie periodic în terminal.
+  # Asta “taie” output-ul și intercalează caractere peste text.
+  # Efectul rămâne: desenăm stelele doar când shell-ul e idle (precmd).
+  STARS_DRAWN=0
+  _draw_static_stars
 }
 
 parallax_stop() {
+  # compat: dacă există un PID vechi, îl oprim.
   [[ -n "$PARALLAX_PID" ]] && kill "$PARALLAX_PID" 2>/dev/null
   PARALLAX_PID=""
+  STARS_DRAWN=0
 }
 
 parallax_redraw_now() {
@@ -2395,19 +2409,8 @@ parallax_redraw_now() {
 generate_parallax_bg() { _draw_static_stars; }
 parallax_draw_fullscreen_skip() { :; }
 cyber_draw_parallax_header() { :; }
-
-cyber_toggle_parallax_widget() {
-  (( PARALLAX_ENABLED = !PARALLAX_ENABLED ))
-  if (( PARALLAX_ENABLED )); then
-    parallax_start
-    zle -M "✦ Stars: ON"
-  else
-    parallax_stop
-    zle -M "✦ Stars: OFF"
-  fi
-}
-zle -N cyber_toggle_parallax_widget
-bindkey '^[p' cyber_toggle_parallax_widget
+# NOTE: `cyber_toggle_parallax_widget` este definit mai sus (integrat cu topbar).
+# Evităm redefinirea/bind-urile duplicate aici (provocau “suprascrieri” și haos).
 #\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
 # SECTION 17: FEATURE 6 - NLP FOR COMMAND CORRECTIONS
 # \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
@@ -3944,6 +3947,10 @@ command_not_found_handler() {
 # HOOKS
 preexec() {
     typeset -f cyber_preexec_capture_stderr >/dev/null 2>&1 && cyber_preexec_capture_stderr
+    # În timpul unei comenzi: ascundem UI și dezactivăm efecte care pot scrie peste output.
+    typeset -f cyber_topbar_reset_scroll_region >/dev/null 2>&1 && cyber_topbar_reset_scroll_region
+    typeset -f cyber_clear_utility_bar >/dev/null 2>&1 && cyber_clear_utility_bar
+    typeset -f parallax_stop >/dev/null 2>&1 && parallax_stop
     typeset -f cyber_disable_mouse >/dev/null 2>&1 && cyber_disable_mouse
     CYBER_LAST_COMMAND="$1"
     CYBER_LAST_COMMAND_TIME=$EPOCHSECONDS
@@ -3954,6 +3961,8 @@ preexec() {
 precmd() {
     local last_exit=$?
     # typeset -f cyber_precmd_restore_stderr_doctor_and_bar >/dev/null 2>&1 && cyber_precmd_restore_stderr_doctor_and_bar "$last_exit"
+    # Comanda s-a terminat: reafișăm UI.
+    typeset -f cyber_topbar_apply_scroll_region >/dev/null 2>&1 && cyber_topbar_apply_scroll_region
     typeset -f cyber_enable_mouse >/dev/null 2>&1 && cyber_enable_mouse
     CYBER_LAST_EXIT_CODE=$last_exit
     local dur=0
@@ -3973,7 +3982,10 @@ precmd() {
 }
 # Forțează redesenarea barei după fiecare comandă
 _cyber_redraw_bar_precmd() {
+    typeset -f cyber_topbar_apply_scroll_region >/dev/null 2>&1 && cyber_topbar_apply_scroll_region
     (( CYBER_TOPBAR_ENABLED )) && cyber_draw_utility_bar 2>/dev/null
+    # Parallax fără proces în fundal: desen doar “la final de comandă” (nu peste output).
+    (( ${PARALLAX_ENABLED:-0} )) && typeset -f _draw_static_stars >/dev/null 2>&1 && _draw_static_stars 2>/dev/null
 }
 add-zsh-hook precmd _cyber_redraw_bar_precmd
 
@@ -3998,6 +4010,21 @@ bindkey '^H' backward-kill-word
 bindkey '^R' history-incremental-search-backward
 bindkey '^ ' file_explorer_widget
 bindkey '^X^C' toggle_clipboard_bar
+
+# Re-bind widgets după `bindkey -e` (altfel se pierd bind-urile definite mai sus).
+bindkey '^[u' cyber_toggle_topbar_widget
+bindkey '^[d' cyber_toggle_doctor_widget
+bindkey '^[p' cyber_toggle_parallax_widget
+bindkey '^[h' cyber_help_widget
+bindkey '^[s' cyber_search_widget
+bindkey '^[c' cyber_clip_widget
+bindkey '^[f' cyber_files_widget
+bindkey '^[m' cyber_macros_widget
+
+# Mouse click handler (dacă CYBER_MOUSE_ENABLED=1).
+for km in emacs viins vicmd; do
+  bindkey -M "$km" '^[[<' cyber_mouse_click_widget 2>/dev/null
+done
 
 
 # FZF
@@ -4032,7 +4059,6 @@ load_command_sequences
 clipboard_load
 detect_project
 if [[ -o interactive ]] && [[ -z "$WELCOME_SHOWN" ]] && [[ -n "$TMUX" ]]; then
-  WELCOME_SHOWN=1
   CYBER_TOPBAR_ENABLED=0
   cinematic_intro
   CYBER_TOPBAR_ENABLED=1
